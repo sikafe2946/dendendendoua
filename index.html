@@ -7804,11 +7804,16 @@ function playGoodsOrTool(i) {
       m.maxHp += 30; m.currentHp += 30;
       addLog(`${p.name}は「${m.card.name}」にどうぐ「${card.name}」をつけた！（最大HP+30、ワザ+20）`);
     } else if (card.effectId === 'mugen_ice_goods') {
-      if (p.active) {
-        p.active.currentHp = Math.min(p.active.maxHp, p.active.currentHp + 20);
-        addLog(`🍨 無限アイス！「${p.active.card.name}」のHPを20回復した！`);
+      const target = m || p.active;
+      const prevTool = target ? target.tool : null;
+      if (target) {
+        target.tool = card;
+        target.currentHp = Math.min(target.maxHp, target.currentHp + 20);
+        addLog(`🍨 ${p.name}は「${target.card.name}」に「${card.name}」をつけた！HPを20回復した！`);
       }
+      render();
       flipCoin('無限アイス').then(heads => {
+        if (target && target.tool === card) target.tool = prevTool || null;
         if (heads) {
           p.hand.push(card);
           addLog('✨ オモテ！無限アイスはトラッシュせず手札に戻った！');
@@ -8073,7 +8078,7 @@ runCpuTurn = async function () {
   // ------------------------------------------------------
   let fxEnd = 0, fxQueue = 0, attackRunning = false, asyncBusy = 0, forcedModal = false;
   const coinVisible = () => { const o = $('coinOverlay'); return !!o && o.style.display === 'block'; };
-  const fxPending = () => Date.now() < fxEnd || coinVisible();
+  const fxPending = () => Date.now() < fxEnd || coinVisible() || (typeof window.isCutinActive === 'function' && window.isCutinActive());
   const isBusy = () => attackRunning || asyncBusy > 0 || fxPending();
   const syncBusy = () => document.body.classList.toggle('fxBusy', isBusy());
   setInterval(syncBusy, 60);
@@ -8570,6 +8575,7 @@ runCpuTurn = async function () {
   function goodsTargets(card, p) {
     const mons = fieldMons(p);
     if (card.effectId === 'fairy_tool') return mons.filter(m => m.card.type === 'fairy' && !m.tool);
+    if (card.effectId === 'mugen_ice_goods') return (p.active && p.active.currentHp < p.active.maxHp) ? [p.active] : [];
     if (card.effectId === 'heal_status_30') return mons.filter(m => m.currentHp < m.maxHp || (m.statuses && m.statuses.length));
     if (ATTACH_TOOLS.includes(card.effectId)) return mons.filter(m => !m.tool);
     return null;   // 対象を選ばないグッズ
@@ -8583,14 +8589,19 @@ runCpuTurn = async function () {
       m.maxHp += 30; m.currentHp += 30;
       addLog(`${p.name}は「${m.card.name}」にどうぐ「${card.name}」をつけた！（最大HP+30、ワザ+20）`);
     } else if (card.effectId === 'mugen_ice_goods') {
-      if (p.active) {
-        const before = p.active.currentHp;
-        p.active.currentHp = Math.min(p.active.maxHp, p.active.currentHp + 20);
-        addLog(`🍨 無限アイス！「${p.active.card.name}」のHPを${p.active.currentHp - before}回復した！`);
+      const target = m || p.active;
+      const prevTool = target ? target.tool : null;
+      if (target) {
+        target.tool = card;
+        const before = target.currentHp;
+        target.currentHp = Math.min(target.maxHp, target.currentHp + 20);
+        addLog(`🍨 ${p.name}は「${target.card.name}」に「${card.name}」をつけた！HPを${target.currentHp - before}回復した！`);
         if (typeof showBattleFx === 'function') showBattleFx('heal', '🍨 無限アイス +20');
       }
+      render();
       asyncBusy++; syncBusy();
       flipCoin('無限アイス').then(heads => {
+        if (target && target.tool === card) target.tool = prevTool || null;
         if (heads) {
           p.hand.push(card);
           addLog('✨ オモテ！無限アイスはトラッシュせず手札に戻った！');
@@ -8698,6 +8709,10 @@ runCpuTurn = async function () {
     const p = state.players[state.currentPlayer];
     state.pendingAction = null; state.pendingTool = null;
     applyGoods(p, pt.card, mon);
+    if (pt.card && typeof window.showCardCutin === 'function') {
+      const catMap = { supporter: 'サポート発動！', stadium: 'スタジアム設置！', tool: 'ポケモンのどうぐ', goods: 'グッズ使用！' };
+      window.showCardCutin(pt.card, catMap[pt.card.category] || 'カード使用');
+    }
   }
 
   const _rfs = renderFieldSlot;
@@ -12151,59 +12166,111 @@ ${ef.text}`, 2200);
     setTimeout(() => pop.remove(), 1400);
   }
 
-  // 4. カットイン演出関数
+  // 4. カットイン演出関数（進行中フラグ・待機制御付き）
+  let activeCutinCount = 0;
+  const cutinWaiters = [];
+  function beginCutin() {
+    activeCutinCount++;
+  }
+  function endCutin() {
+    activeCutinCount = Math.max(0, activeCutinCount - 1);
+    if (activeCutinCount === 0) {
+      while (cutinWaiters.length) cutinWaiters.shift()();
+    }
+  }
+  function isCutinActive() {
+    return activeCutinCount > 0 ||
+      turnSweepEl.classList.contains('show') ||
+      cardCutinEl.classList.contains('show') ||
+      atkCutinEl.classList.contains('show') ||
+      pointBannerEl.classList.contains('show');
+  }
+  function waitForCutins() {
+    return new Promise(resolve => {
+      const check = async () => {
+        await Promise.resolve();
+        if (!isCutinActive()) { resolve(); return; }
+        cutinWaiters.push(() => setTimeout(check, 20));
+      };
+      check();
+    });
+  }
+  window.isCutinActive = isCutinActive;
+  window.waitForCutins = waitForCutins;
+
   async function showTurnSweep(isMine, playerName, turnNum) {
-    turnSweepEl.innerHTML = `<div class="pp-turn-bar ${isMine ? 'mine' : 'opp'}">
-      <div class="pp-turn-title">${isMine ? 'YOUR TURN' : "OPPONENT'S TURN"}</div>
-      <div class="pp-turn-sub">Turn ${turnNum} ─ ${playerName}の番（カードを1枚引いた）</div>
-    </div>`;
-    turnSweepEl.classList.add('show');
-    await ppWait(1100, 500);
-    turnSweepEl.classList.remove('show');
+    beginCutin();
+    try {
+      turnSweepEl.innerHTML = `<div class="pp-turn-bar ${isMine ? 'mine' : 'opp'}">
+        <div class="pp-turn-title">${isMine ? 'YOUR TURN' : "OPPONENT'S TURN"}</div>
+        <div class="pp-turn-sub">Turn ${turnNum} ─ ${playerName}の番（カードを1枚引いた）</div>
+      </div>`;
+      turnSweepEl.classList.add('show');
+      await ppWait(1100, 500);
+      turnSweepEl.classList.remove('show');
+    } finally {
+      endCutin();
+    }
   }
 
   async function showCardCutin(card, badgeLabel, customDesc) {
     if (!card) return;
-    const src = typeof getCardPhotoSrc === 'function' ? getCardPhotoSrc(card) : '';
-    const desc = customDesc || card.description || '';
-    cardCutinEl.innerHTML = `<div class="pp-cutin-box">
-      ${src ? `<img class="pp-cutin-img" src="${src}" alt="">` : ''}
-      <div style="min-width:0;flex:1">
-        <span class="pp-cutin-badge">${badgeLabel}</span>
-        <div class="pp-cutin-name">${card.name}</div>
-        ${desc ? `<div class="pp-cutin-desc">${desc}</div>` : ''}
-      </div>
-    </div>`;
-    cardCutinEl.classList.add('show');
-    if (window.PocketSFX) PocketSFX.play('card');
-    await ppWait(1350, 580);
-    cardCutinEl.classList.remove('show');
+    beginCutin();
+    try {
+      const src = typeof getCardPhotoSrc === 'function' ? getCardPhotoSrc(card) : '';
+      const desc = customDesc || card.description || '';
+      cardCutinEl.innerHTML = `<div class="pp-cutin-box">
+        ${src ? `<img class="pp-cutin-img" src="${src}" alt="">` : ''}
+        <div style="min-width:0;flex:1">
+          <span class="pp-cutin-badge">${badgeLabel}</span>
+          <div class="pp-cutin-name">${card.name}</div>
+          ${desc ? `<div class="pp-cutin-desc">${desc}</div>` : ''}
+        </div>
+      </div>`;
+      cardCutinEl.classList.add('show');
+      if (window.PocketSFX) PocketSFX.play('card');
+      await ppWait(1350, 580);
+      cardCutinEl.classList.remove('show');
+    } finally {
+      endCutin();
+    }
   }
+  window.showCardCutin = showCardCutin;
 
   async function showAttackCutin(attacker, atk, ownerName) {
-    const cfg = TYPE_VFX[attacker.card.type] || TYPE_VFX.colorless;
-    const src = typeof getCardPhotoSrc === 'function' ? getCardPhotoSrc(attacker.card) : '';
-    atkCutinEl.style.setProperty('--atk-bg', cfg.bg);
-    atkCutinEl.style.setProperty('--atk-glow', cfg.color);
-    atkCutinEl.innerHTML = `<div class="pp-atk-banner">
-      ${src ? `<img class="pp-atk-thumb" src="${src}" alt="">` : ''}
-      <div style="min-width:0;flex:1">
-        <div class="pp-atk-who">${ownerName}の「${attacker.card.name}」</div>
-        <div class="pp-atk-name">${atk.name}</div>
-        <div class="pp-atk-dmg">${atk.damage > 0 ? `威力 ${atk.damage}` : '特殊効果ワザ'}</div>
-      </div>
-    </div>`;
-    atkCutinEl.classList.add('show');
-    await ppWait(950, 420);
-    atkCutinEl.classList.remove('show');
+    beginCutin();
+    try {
+      const cfg = TYPE_VFX[attacker.card.type] || TYPE_VFX.colorless;
+      const src = typeof getCardPhotoSrc === 'function' ? getCardPhotoSrc(attacker.card) : '';
+      atkCutinEl.style.setProperty('--atk-bg', cfg.bg);
+      atkCutinEl.style.setProperty('--atk-glow', cfg.color);
+      atkCutinEl.innerHTML = `<div class="pp-atk-banner">
+        ${src ? `<img class="pp-atk-thumb" src="${src}" alt="">` : ''}
+        <div style="min-width:0;flex:1">
+          <div class="pp-atk-who">${ownerName}の「${attacker.card.name}」</div>
+          <div class="pp-atk-name">${atk.name}</div>
+          <div class="pp-atk-dmg">${atk.damage > 0 ? `威力 ${atk.damage}` : '特殊効果ワザ'}</div>
+        </div>
+      </div>`;
+      atkCutinEl.classList.add('show');
+      await ppWait(950, 420);
+      atkCutinEl.classList.remove('show');
+    } finally {
+      endCutin();
+    }
   }
 
   async function showPointScoredBanner(scorerName, pts, totalPts) {
-    pointBannerEl.innerHTML = `🏆 ${scorerName}が +${pts} ポイント獲得！<div style="font-size:13px;margin-top:3px;color:#fef08a;">現在 ${totalPts} / 3 ポイント</div>`;
-    pointBannerEl.classList.add('show');
-    if (window.PocketSFX) PocketSFX.play('energy');
-    await ppWait(1350, 600);
-    pointBannerEl.classList.remove('show');
+    beginCutin();
+    try {
+      pointBannerEl.innerHTML = `🏆 ${scorerName}が +${pts} ポイント獲得！<div style="font-size:13px;margin-top:3px;color:#fef08a;">現在 ${totalPts} / 3 ポイント</div>`;
+      pointBannerEl.classList.add('show');
+      if (window.PocketSFX) PocketSFX.play('energy');
+      await ppWait(1350, 600);
+      pointBannerEl.classList.remove('show');
+    } finally {
+      endCutin();
+    }
   }
 
   // 5. 主要アクションにポケポケ演出・ゆっくりテンポを統合
@@ -12221,11 +12288,18 @@ ${ef.text}`, 2200);
     const p = state.players?.[state.currentPlayer];
     const c = p?.hand?.[handIndex];
     const res = _ppOrigPlayCard.apply(this, arguments);
-    if (c && (c.category === 'supporter' || c.category === 'stadium' || c.category === 'tool' || c.category === 'goods')) {
+    if (state.pendingAction !== 'attach_tool' && c && (c.category === 'supporter' || c.category === 'stadium' || c.category === 'tool' || c.category === 'goods')) {
       const catMap = { supporter: 'サポート発動！', stadium: 'スタジアム設置！', tool: 'ポケモンのどうぐ', goods: 'グッズ使用！' };
       showCardCutin(c, catMap[c.category] || 'カード使用');
     }
     return res;
+  };
+
+  // カットイン演出中にコイントスを始めない
+  const _ppOrigFlipCoin = flipCoin;
+  flipCoin = async function (label) {
+    await waitForCutins();
+    return _ppOrigFlipCoin.apply(this, arguments);
   };
 
   const _ppOrigEvolve = evolveFromHand;

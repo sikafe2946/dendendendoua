@@ -3029,6 +3029,9 @@ function initGame() {
   state.winner = null;
     state.winReason = '';
   state.pendingAction = null;
+  state.attackInProgress = false;
+  state.renshaAllowed = false;
+  state._endingTurn = false;
   state.players = [
     createPlayerState('あなた', false),
     createPlayerState(state.vsCpu ? '相手 (CPU)' : 'プレイヤー2', state.vsCpu)
@@ -3088,6 +3091,10 @@ function startTurn(playerIdx, isFirstTurn = false) {
   p.supporterUsedThisTurn = false;
   p.stadiumPlayedThisTurn = false;
   p.retreatedThisTurn = false;
+  p.attackedThisTurn = false;
+  state.attackInProgress = false;
+  state.renshaAllowed = false;
+  state._endingTurn = false;
   p.tempDamageBonus = 0;
   p.tempMaxHpBonus = 0;
 
@@ -3818,7 +3825,13 @@ function canPayEnergy(attachedEnergies, costList) {
 
 function openAttackModal() {
   const p = state.players[state.currentPlayer];
-  if (p.isCpu || !p.active || state.winner !== null) return;
+  if (!p || p.isCpu || !p.active || state.winner !== null) return;
+  if (state.attackInProgress || state._endingTurn) return;
+  if (p.attackedThisTurn) {
+    addLog('⚠️ この番はすでにワザを使っています！');
+    if (typeof showToast === 'function') showToast('ワザは1ターンに1回までです', 1500);
+    return;
+  }
 
   const canUseWhileAsleep = p.active.statuses.includes('asleep') && !p.active.statuses.includes('paralysis') && p.active.card.attacks.some(a => a.effectId === 'asleep_plus_90');
   if ((p.active.statuses.includes('asleep') && !canUseWhileAsleep) || p.active.statuses.includes('paralysis')) {
@@ -3853,7 +3866,7 @@ function openAttackModal() {
           : `${atk.damage} ダメージ`)
       : '特殊効果';
     html += `
-      <button class="attack-choice ${ok ? 'attack-ready' : 'attack-unavailable'}" ${ok ? '' : 'disabled'} onclick="executeAttack(${idx})">
+      <button class="attack-choice ${ok ? 'attack-ready' : 'attack-unavailable'}" ${ok ? '' : 'disabled'} onclick="window.__pickAttackFromModal(this, ${idx})">
         <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; font-weight:bold; font-size:13px;">
           <span>${costStr} ${atk.name}</span>
           <span style="color:#fbbf24; white-space:nowrap;">${dmgHtml}</span>
@@ -3867,6 +3880,15 @@ function openAttackModal() {
   modal.innerHTML = html;
   document.getElementById('modalBackdrop').classList.add('open');
 }
+
+window.__pickAttackFromModal = function (btn, idx) {
+  if (state.attackInProgress || state._endingTurn) return;
+  const p = state.players?.[state.currentPlayer];
+  if (p?.attackedThisTurn) return;
+  document.querySelectorAll('#modalContent .attack-choice').forEach(b => { b.disabled = true; });
+  if (btn) btn.disabled = true;
+  executeAttack(idx);
+};
 
 function pickOpponentBenchPromise(attackerPlayer, defenderPlayer, title) {
   if (!defenderPlayer.bench.length) return Promise.resolve(-1);
@@ -3885,7 +3907,8 @@ function pickOpponentBenchPromise(attackerPlayer, defenderPlayer, title) {
       html += `<button class="attack-choice" onclick="window.__pickOppBench(${idx})"><strong>${m.card.name}</strong>（HP ${Math.max(0, m.currentHp)}/${m.maxHp}）</button>`;
     });
     html += `</div>`;
-    window.__pickOppBench = idx => { closeModal(); resolve(idx); };
+    let picked = false;
+    window.__pickOppBench = idx => { if (picked) return; picked = true; document.querySelectorAll('#modalContent .attack-choice').forEach(b => { b.disabled = true; }); closeModal(); resolve(idx); };
     modal.innerHTML = html;
     document.getElementById('modalBackdrop').classList.add('open');
   });
@@ -3951,7 +3974,11 @@ async function executeAttack(attackIndex, extraChoice = null) {
         html += `<button class="attack-choice attack-ready" onclick="window.__pickCopyAtk(${idx})"><div style="display:flex;justify-content:space-between;font-weight:bold;font-size:12.5px;"><span>[${ch.zone}] ${ch.monName}：${ch.atk.name}</span><span style="color:#fbbf24;">${dStr}</span></div><div style="font-size:11px;color:#cbd5e1;margin-top:3px;">${ch.atk.description || ''}</div></button>`;
       });
       html += `</div>`;
+      let copyPicked = false;
       window.__pickCopyAtk = idx => {
+        if (copyPicked) return;
+        copyPicked = true;
+        document.querySelectorAll('#modalContent .attack-choice').forEach(b => { b.disabled = true; });
         closeModal();
         executeAttack(attackIndex, { copiedAtk: choices[idx].atk, monName: choices[idx].monName });
       };
@@ -4017,7 +4044,15 @@ async function executeAttack(attackIndex, extraChoice = null) {
         extraChoice = String(metalBench[0].bi);
       } else {
         const modal = document.getElementById('modalContent');
-        modal.innerHTML = `<div class="modal-title"><span>フレンズ転がり：参照するベンチを選択</span></div><div class="attack-btn-list">${metalBench.map(({ b, bi }) => `<button class="attack-choice" onclick="closeModal();executeAttack(${attackIndex},'${bi}')">${b.card.name}（残りHP ${b.currentHp}）</button>`).join('')}</div>`;
+        let friendsPicked = false;
+        window.__pickFriendsBench = bi => {
+          if (friendsPicked) return;
+          friendsPicked = true;
+          document.querySelectorAll('#modalContent .attack-choice').forEach(b => { b.disabled = true; });
+          closeModal();
+          executeAttack(attackIndex, String(bi));
+        };
+        modal.innerHTML = `<div class="modal-title"><span>フレンズ転がり：参照するベンチを選択</span></div><div class="attack-btn-list">${metalBench.map(({ b, bi }) => `<button class="attack-choice" onclick="window.__pickFriendsBench(${bi})">${b.card.name}（残りHP ${b.currentHp}）</button>`).join('')}</div>`;
         document.getElementById('modalBackdrop').classList.add('open');
         return;
       }
@@ -4713,19 +4748,30 @@ async function executeAttack(attackIndex, extraChoice = null) {
     case 'rensha_again':
       if (extraChoice !== 'no_chain' && state.winner === null && attacker.currentHp > 0 && attackerPlayer.active === attacker) {
         addLog('🏹 連射の効果！もう一度ワザを使える！');
+        state.renshaAllowed = true;
         if (attackerPlayer.isCpu) {
           const best = attacker.card.attacks.map((a, idx) => ({ a, idx })).filter(x => canPayEnergy(attacker.energies, x.a.cost)).sort((a, b) => b.a.damage - a.a.damage)[0];
           if (best) {
             await executeAttack(best.idx, 'no_chain');
+            state.renshaAllowed = false;
             return;
           }
+          state.renshaAllowed = false;
         } else {
           await new Promise(resolve => {
             const modal = document.getElementById('modalContent');
+            let renshaPicked = false;
             window.__renshaPick = async (idx) => {
+              if (renshaPicked) return;
+              renshaPicked = true;
+              document.querySelectorAll('#modalContent .attack-choice').forEach(b => { b.disabled = true; });
               closeModal();
-              await executeAttack(idx, 'no_chain');
-              resolve();
+              try {
+                await executeAttack(idx, 'no_chain');
+              } finally {
+                state.renshaAllowed = false;
+                resolve();
+              }
             };
             modal.innerHTML = `<div class="modal-title"><span>連射：もう一度使うワザを選択</span></div><div class="attack-btn-list">` +
               attacker.card.attacks.map((a, idx) => {
@@ -6398,8 +6444,18 @@ function openChoiceModal(title, opt1Label, opt2Label, onOpt1, onOpt2) {
       <button class="btn-action btn-retreat" id="choiceBtn2">${opt2Label}</button>
     </div>
   `;
-  document.getElementById('choiceBtn1').onclick = () => { closeModal(); onOpt1(); };
-  document.getElementById('choiceBtn2').onclick = () => { closeModal(); onOpt2(); };
+  let choicePicked = false;
+  const pickChoice = fn => {
+    if (choicePicked) return;
+    choicePicked = true;
+    const b1 = document.getElementById('choiceBtn1'), b2 = document.getElementById('choiceBtn2');
+    if (b1) b1.disabled = true;
+    if (b2) b2.disabled = true;
+    closeModal();
+    fn();
+  };
+  document.getElementById('choiceBtn1').onclick = () => pickChoice(onOpt1);
+  document.getElementById('choiceBtn2').onclick = () => pickChoice(onOpt2);
   document.getElementById('modalBackdrop').classList.add('open');
 }
 
@@ -6644,7 +6700,7 @@ function closeDeckBuilder(){const e=document.getElementById('deckBuilder');if(e)
 function showTitleScreen(){closeDeckBuilder();document.getElementById('titleScreen').style.display='flex'}
 function beginFromTitle(cpu){const titleNameInp=document.getElementById('titlePlayerNameInput');if(titleNameInp&&titleNameInp.value.trim())savePlayerNameGlobal(titleNameInp.value);if(!validDeck(deckConfig?.ids,deckConfig?.types)){deckConfig={ids:[...DEFAULT_DECK_IDS],types:[...DEFAULT_ENERGY_TYPES]};writePersistedProfile({deck:deckConfig})}state.vsCpu=cpu;const _modeLabel=document.getElementById('modeLabel');if(_modeLabel)_modeLabel.textContent=cpu?'[CPU対戦]':'[2人交互]';try{initGame();document.getElementById('titleScreen').style.display='none'}catch(err){console.error(err);showNoticeModal('対戦の準備でエラーが発生しました: '+err.message)}}
 function createPlayerState(name,isCpu){const cards=deckCards(deckConfig.ids);return {name,isCpu,points:0,deck:shuffle(cards.map((c,i)=>({...JSON.parse(JSON.stringify(c)),uid:`${name}_${i}_${Math.random()}`}))),hand:[],discard:[],active:null,bench:[],energyTypes:[...deckConfig.types],currentEnergy:null,nextEnergy:null,energyAttachedThisTurn:false,supporterUsedThisTurn:false,retreatedThisTurn:false,tempDamageBonus:0,tempMaxHpBonus:0,evolvedThisTurn:false,cantAttackUntilTurn:0}}
-function initGame(){document.getElementById('battleLog').innerHTML='';state.turnCount=1;state.usedCardNames=[];state.firstPlayer=Math.random()<0.5?0:1;state.currentPlayer=state.firstPlayer;state.winner=null;state.pendingAction=null;state.setupPlayer=0;state.players=[createPlayerState(state.vsCpu?getSavedPlayerNameGlobal():'プレイヤー1',false),createPlayerState(state.vsCpu?'相手 (CPU)':'プレイヤー2',state.vsCpu)];for(const p of state.players){do{p.hand=p.deck.splice(0,5);if(!p.hand.some(c=>c.category==='pokemon'&&c.stage==='basic'))p.deck=shuffle([...p.deck,...p.hand])}while(!p.hand.some(c=>c.category==='pokemon'&&c.stage==='basic'));p.nextEnergy=rollEnergy(p.energyTypes)}if(state.vsCpu)autoSetup(state.players[1]);addLog('初期手札を引きました。たねポケモンを配置してください。');showSetup();render()}
+function initGame(){document.getElementById('battleLog').innerHTML='';state.turnCount=1;state.usedCardNames=[];state.firstPlayer=Math.random()<0.5?0:1;state.currentPlayer=state.firstPlayer;state.winner=null;state.pendingAction=null;state.attackInProgress=false;state.renshaAllowed=false;state._endingTurn=false;state.setupPlayer=0;state.players=[createPlayerState(state.vsCpu?getSavedPlayerNameGlobal():'プレイヤー1',false),createPlayerState(state.vsCpu?'相手 (CPU)':'プレイヤー2',state.vsCpu)];for(const p of state.players){do{p.hand=p.deck.splice(0,5);if(!p.hand.some(c=>c.category==='pokemon'&&c.stage==='basic'))p.deck=shuffle([...p.deck,...p.hand])}while(!p.hand.some(c=>c.category==='pokemon'&&c.stage==='basic'));p.nextEnergy=rollEnergy(p.energyTypes)}if(state.vsCpu)autoSetup(state.players[1]);addLog('初期手札を引きました。たねポケモンを配置してください。');showSetup();render()}
 function autoSetup(p){const bs=p.hand.filter(c=>c.category==='pokemon'&&c.stage==='basic');if(!bs.length)return;p.active=createFieldPokemon(p.hand.splice(p.hand.indexOf(bs[0]),1)[0],0);while(p.bench.length<3){const i=p.hand.findIndex(c=>c.category==='pokemon'&&c.stage==='basic');if(i<0)break;p.bench.push(createFieldPokemon(p.hand.splice(i,1)[0],0))}}
 function showSetup(){const p=state.players[state.setupPlayer];if(p.isCpu){finishSetupPlayer();return}let el=document.getElementById('setupScreen');if(!el){el=document.createElement('div');el.id='setupScreen';el.className='screen-overlay';document.body.appendChild(el)}el.style.display='block';el.innerHTML=`<section class="setupPanel"><h2>${p.name}：初期配置</h2><p>たねを1枚バトル場に置き、残りからベンチに最大3枚置けます。</p><div class="setupCards">${p.hand.map((c,i)=>c.category==='pokemon'&&c.stage==='basic'?`<article><img src="${getCardPhotoSrc(c)||''}"><b>${c.name}</b><button onclick="setupPlace(${i},'active')">バトル場に置く</button>${p.hand.filter(x=>x.category==='pokemon'&&x.stage==='basic').length > (p.active ? 0 : 1) ? `<button onclick="setupPlace(${i},'bench')">ベンチに置く</button>` : ''}</article>`:'').join('')}</div><button onclick="finishSetupPlayer()">配置を完了</button></section>`}
 function setupPlace(i,zone){const p=state.players[state.setupPlayer],c=p.hand[i];if(!c||c.category!=='pokemon'||c.stage!=='basic')return;if(zone==='active'){if(p.active){showNoticeModal('バトル場は1枚です');return}p.active=createFieldPokemon(c,0)}else{if(p.bench.length>=3)return;p.bench.push(createFieldPokemon(c,0))}p.hand.splice(i,1);showSetup()}
@@ -6736,7 +6792,7 @@ function restartBattle(){if(state.isMultiplayer){returnToTitle();if(typeof openM
 
 // In pass-and-play, orient the board toward the player whose turn is active.
 let renderPlayerIndex=0;
-render=function(){if(!state.players||state.players.length!==2)return;renderPlayerIndex=state.isMultiplayer?state.mpLocalIdx:(state.pendingReplacementPlayer!=null?state.pendingReplacementPlayer:(state.vsCpu?0:state.currentPlayer));const me=state.players[renderPlayerIndex],opp=state.players[1-renderPlayerIndex],activeP=state.players[state.currentPlayer];const byId=id=>document.getElementById(id);byId('myDeckCount').textContent=me.deck.length;if(byId('myHandCount'))byId('myHandCount').textContent=me.hand.length;byId('myDiscardCount').textContent=me.discard.length;byId('oppDeckCount').textContent=opp.deck.length;byId('oppHandCount').textContent=opp.hand.length;renderDeckAndTrash(me,opp);byId('oppName').textContent=opp.name;for(let i=1;i<=3;i++){byId(`myPt${i}`).classList.toggle('active',me.points>=i);byId(`oppPt${i}`).classList.toggle('active',opp.points>=i)}byId('turnIndicator').textContent=state.winner!==null?(state.isMultiplayer?(state.winner===state.mpLocalIdx?'🏆 勝利！':'💀 敗北…'):`🏆 ${state.players[state.winner].name} の勝利！`):`ターン ${state.turnCount} - ${activeP.name}の番`;const orb=byId('curEnergyOrb');orb.textContent=me.currentEnergy?TYPE_INFO[me.currentEnergy].label:'—';orb.style.background=me.currentEnergy?(TYPE_INFO[me.currentEnergy]?.color||'#334155'):'#334155';orb.classList.toggle('used',me.energyAttachedThisTurn||state.currentPlayer!==renderPlayerIndex);byId('nextEnergyText').textContent=me.nextEnergy?TYPE_INFO[me.nextEnergy].label:'-';renderFieldSlot(byId('oppActive'),opp.active,false,'active',0);const ob=byId('oppBench');ob.innerHTML='';for(let i=0;i<GAME_CONFIG.MAX_BENCH;i++){const slot=document.createElement('div');slot.className='slot';renderFieldSlot(slot,opp.bench[i]||null,false,'bench',i);ob.appendChild(slot)}renderFieldSlot(byId('myActive'),me.active,true,'active',0);const mb=byId('myBench');mb.innerHTML='';for(let i=0;i<GAME_CONFIG.MAX_BENCH;i++){const slot=document.createElement('div');slot.className='slot';renderFieldSlot(slot,me.bench[i]||null,true,'bench',i);mb.appendChild(slot)}const hand=byId('myHand');hand.innerHTML='';me.hand.forEach((card,i)=>{const wrap=document.createElement('div');wrap.className='hand-card';wrap.appendChild(createCardElement(card,null));wrap.onclick=()=>handleHandCardClick(i);hand.appendChild(wrap)});const canAct=state.winner===null&&state.pendingReplacementPlayer==null&&!me.isCpu&&state.currentPlayer===renderPlayerIndex;byId('btnAttack').disabled=!canAct||!me.active;byId('btnRetreat').disabled=!canAct||!me.active||me.retreatedThisTurn||me.bench.length===0;byId('btnEndTurn').disabled=!canAct;const turnName=byId('turnIndicator');turnName.dataset.player=String(state.currentPlayer)};
+render=function(){if(!state.players||state.players.length!==2)return;renderPlayerIndex=state.isMultiplayer?state.mpLocalIdx:(state.pendingReplacementPlayer!=null?state.pendingReplacementPlayer:(state.vsCpu?0:state.currentPlayer));const me=state.players[renderPlayerIndex],opp=state.players[1-renderPlayerIndex],activeP=state.players[state.currentPlayer];const byId=id=>document.getElementById(id);byId('myDeckCount').textContent=me.deck.length;if(byId('myHandCount'))byId('myHandCount').textContent=me.hand.length;byId('myDiscardCount').textContent=me.discard.length;byId('oppDeckCount').textContent=opp.deck.length;byId('oppHandCount').textContent=opp.hand.length;renderDeckAndTrash(me,opp);byId('oppName').textContent=opp.name;for(let i=1;i<=3;i++){byId(`myPt${i}`).classList.toggle('active',me.points>=i);byId(`oppPt${i}`).classList.toggle('active',opp.points>=i)}byId('turnIndicator').textContent=state.winner!==null?(state.isMultiplayer?(state.winner===state.mpLocalIdx?'🏆 勝利！':'💀 敗北…'):`🏆 ${state.players[state.winner].name} の勝利！`):`ターン ${state.turnCount} - ${activeP.name}の番`;const orb=byId('curEnergyOrb');orb.textContent=me.currentEnergy?TYPE_INFO[me.currentEnergy].label:'—';orb.style.background=me.currentEnergy?(TYPE_INFO[me.currentEnergy]?.color||'#334155'):'#334155';orb.classList.toggle('used',me.energyAttachedThisTurn||state.currentPlayer!==renderPlayerIndex);byId('nextEnergyText').textContent=me.nextEnergy?TYPE_INFO[me.nextEnergy].label:'-';renderFieldSlot(byId('oppActive'),opp.active,false,'active',0);const ob=byId('oppBench');ob.innerHTML='';for(let i=0;i<GAME_CONFIG.MAX_BENCH;i++){const slot=document.createElement('div');slot.className='slot';renderFieldSlot(slot,opp.bench[i]||null,false,'bench',i);ob.appendChild(slot)}renderFieldSlot(byId('myActive'),me.active,true,'active',0);const mb=byId('myBench');mb.innerHTML='';for(let i=0;i<GAME_CONFIG.MAX_BENCH;i++){const slot=document.createElement('div');slot.className='slot';renderFieldSlot(slot,me.bench[i]||null,true,'bench',i);mb.appendChild(slot)}const hand=byId('myHand');hand.innerHTML='';me.hand.forEach((card,i)=>{const wrap=document.createElement('div');wrap.className='hand-card';wrap.appendChild(createCardElement(card,null));wrap.onclick=()=>handleHandCardClick(i);hand.appendChild(wrap)});const canAct=state.winner===null&&state.pendingReplacementPlayer==null&&!me.isCpu&&state.currentPlayer===renderPlayerIndex;byId('btnAttack').disabled=!canAct||!me.active||!!me.attackedThisTurn||!!state.attackInProgress||!!state._endingTurn;byId('btnRetreat').disabled=!canAct||!me.active||me.retreatedThisTurn||me.bench.length===0||!!state.attackInProgress||!!state._endingTurn;byId('btnEndTurn').disabled=!canAct||!!state.attackInProgress||!!state._endingTurn;const turnName=byId('turnIndicator');turnName.dataset.player=String(state.currentPlayer)};
 const _renderSlotBase=renderFieldSlot;
 renderFieldSlot=function(slot,mon,isMine,zone,index){const owner=isMine?renderPlayerIndex:1-renderPlayerIndex;if(state.pendingAction==='promote_active'&&state.pendingPromotionPlayer===owner&&zone==='bench'&&mon&&(!state.isMultiplayer||owner===state.mpLocalIdx)){slot.innerHTML='';slot.classList.remove('highlight');slot.classList.add('highlight');slot.onclick=()=>promoteAfterKnockout(owner,index);slot.appendChild(createCardElement(mon.card,mon));return}_renderSlotBase(slot,mon,isMine,zone,index)};
 async function promoteAfterKnockout(owner,index){const player=state.players[owner];if(!player||!player.bench[index])return;const mon=player.bench.splice(index,1)[0];player.active=mon;state.pendingAction=null;state.pendingPromotionPlayer=null;const opp=state.players[1-owner];addLog(`${player.name}はベンチから「${mon.card.name}」をバトル場に出した。`);triggerSwitchInAbility(mon,opp);render();if(state.vsCpu&&state.currentPlayer===1){await endTurn()}else if(state.vsCpu&&owner===0&&state.currentPlayer===1){await endTurn()}else{await endTurn()}}
@@ -7058,7 +7114,7 @@ renderFieldSlot = function (slot, mon, isMine, zone, index) {
     if (state.pendingReplacementPlayer === owner && zone === 'bench' && (!state.isMultiplayer || owner === state.mpLocalIdx)) {
       fieldAction = { label: '場に出す', action: 'promote', owner, zone, index };
     } else if (owner === state.currentPlayer && isMine && !state.players[owner].isCpu && state.winner === null && state.pendingReplacementPlayer == null) {
-      if (zone === 'active') fieldAction = { label: 'ワザを出す', action: 'attack', owner, zone, index };
+      if (zone === 'active' && !state.players[owner].attackedThisTurn && !state.attackInProgress && !state._endingTurn) fieldAction = { label: 'ワザを出す', action: 'attack', owner, zone, index };
       else if (zone === 'bench') fieldAction = { label: '場に出す', action: 'bench', owner, zone, index };
     }
     openCardDetailModal(mon.card, { fieldMon: mon, fieldAction });
@@ -7087,9 +7143,9 @@ render = function () {
   const view = state.isMultiplayer ? state.mpLocalIdx : (state.pendingReplacementPlayer != null ? state.pendingReplacementPlayer : (state.vsCpu ? 0 : state.currentPlayer));
   renderPlayerIndex = view;
   const canAct = state.winner === null && state.pendingReplacementPlayer == null && !state.players[view].isCpu && state.currentPlayer === view;
-  document.getElementById('btnAttack').disabled = !canAct || !state.players[view].active;
-  document.getElementById('btnRetreat').disabled = !canAct || !state.players[view].active || state.players[view].retreatedThisTurn || state.players[view].bench.length === 0;
-  document.getElementById('btnEndTurn').disabled = !canAct;
+  document.getElementById('btnAttack').disabled = !canAct || !state.players[view].active || !!state.players[view].attackedThisTurn || !!state.attackInProgress || !!state._endingTurn;
+  document.getElementById('btnRetreat').disabled = !canAct || !state.players[view].active || state.players[view].retreatedThisTurn || state.players[view].bench.length === 0 || !!state.attackInProgress || !!state._endingTurn;
+  document.getElementById('btnEndTurn').disabled = !canAct || !!state.attackInProgress || !!state._endingTurn;
 };
 
 const _handBeforeForcedReplacement = handleHandCardClick;
@@ -7844,16 +7900,20 @@ runCpuTurn = async function () {
 
   const _exAtk = executeAttack;
   executeAttack = async function (i, c = null) {
-    if (attackRunning) return;
-    while (asyncBusy > 0) await sleep(50);
+    const isRenshaChain = c === 'no_chain' && !!state.renshaAllowed;
+    if (attackRunning && !isRenshaChain) return;
+    if (!isRenshaChain) {
+      while (asyncBusy > 0) await sleep(50);
+    }
     const p = state.players[state.currentPlayer];
     const mon = p && p.active;
     const atk = mon && mon.card.attacks && mon.card.attacks[i];
+    const wasRunning = attackRunning;
     attackRunning = true; syncBusy();
     let restore = null;
     if (atk && atk.effectId === 'damage_counters_to_opp') { restore = atk.damage; atk.damage = counterDamage(mon); }
     try { return await _exAtk(i, c); }
-    finally { if (restore !== null) atk.damage = restore; attackRunning = false; syncBusy(); }
+    finally { if (restore !== null) atk.damage = restore; if (!wasRunning) { attackRunning = false; syncBusy(); } }
   };
 
   // ------------------------------------------------------
@@ -11671,24 +11731,61 @@ ${ef.text}`, 2200);
   const _ppOrigExecAttack = executeAttack;
   executeAttack = async function (attackIndex, extraChoice = null) {
     const owner = state.currentPlayer;
-    const attacker = state.players?.[owner]?.active;
+    const player = state.players?.[owner];
+    const attacker = player?.active;
     const opp = state.players?.[1 - owner];
     const defender = opp?.active;
     const atk = attacker?.card?.attacks?.[attackIndex];
     if (!attacker || !atk) return _ppOrigExecAttack.apply(this, arguments);
 
-    // 選択肢待ちなどの初回呼び出しを除き、ワザ宣言カットインを出す
-    const needsChoice = (extraChoice === null && !state.players[owner].isCpu &&
-      ['choice_plus30_or_heal30', 'optional_paralyze_opp', 'mada_hairu', 'friends_korogari_2'].includes(atk.effectId));
-    if (!needsChoice) {
-      await showAttackCutin(attacker, atk, state.players[owner].name);
+    const isRenshaChain = extraChoice === 'no_chain' && !!state.renshaAllowed && !state._renshaInFlight;
+    if (!isRenshaChain && (state.attackInProgress || state._endingTurn || player?.attackedThisTurn)) {
+      closeModal();
+      return;
     }
 
-    const prevHpD = defender ? defender.currentHp : 0;
-    const prevHpA = attacker ? attacker.currentHp : 0;
-    const res = await _ppOrigExecAttack.apply(this, arguments);
+    // 選択肢待ちなどの初回呼び出しを除き、ワザ宣言カットインを出す
+    const needsChoice = (extraChoice === null && !player.isCpu && (
+      atk.effectId === 'copy_opp_attack' ||
+      ['choice_plus30_or_heal30', 'optional_paralyze_opp', 'mada_hairu'].includes(atk.effectId) ||
+      (atk.effectId === 'optional_discard_stadium' && !!state.stadium) ||
+      (atk.effectId === 'optional_discard_1_confuse' && attacker.energies.length > 0) ||
+      (atk.effectId === 'friends_korogari_2' && player.bench.filter(b => b.energies.includes('metal')).length > 1)
+    ));
 
-    if (!needsChoice) {
+    const blockedPreCheck =
+      (state.turnCount === 1 && state.currentPlayer === state.firstPlayer) ||
+      attacker.statuses?.includes('paralysis') ||
+      (attacker.statuses?.includes('asleep') && atk.effectId !== 'asleep_plus_90') ||
+      (player?.cantAttackUntilTurn >= state.turnCount) ||
+      (attacker.cantAttackUntilTurn >= state.turnCount) ||
+      !!attacker.deadBallLocked ||
+      (attacker.cantUseAttackUntilTurn >= state.turnCount && attacker.cantUseAttackName === atk.name) ||
+      (typeof stadiumId === 'function' && stadiumId() === 'colosseum_stadium' && atk.cost.length >= 3) ||
+      (typeof canPayEnergy === 'function' && !canPayEnergy(attacker.energies, atk.cost));
+
+    if (blockedPreCheck) {
+      return _ppOrigExecAttack.apply(this, arguments);
+    }
+
+    if (needsChoice) {
+      return _ppOrigExecAttack.apply(this, arguments);
+    }
+
+    closeModal();
+    const wasInProgress = !!state.attackInProgress;
+    state.attackInProgress = true;
+    player.attackedThisTurn = true;
+    if (isRenshaChain) state._renshaInFlight = true;
+    if (typeof render === 'function') render();
+
+    try {
+      await showAttackCutin(attacker, atk, player.name);
+
+      const prevHpD = defender ? defender.currentHp : 0;
+      const prevHpA = attacker ? attacker.currentHp : 0;
+      const res = await _ppOrigExecAttack.apply(this, arguments);
+
       const newHpD = (opp?.active === defender) ? defender.currentHp : 0;
       const lostD = prevHpD - newHpD;
       const lostA = prevHpA - attacker.currentHp;
@@ -11703,8 +11800,12 @@ ${ef.text}`, 2200);
         showFloatPop(owner, 'active', 0, `-${lostA}`, 'dmg');
       }
       await ppWait(850, 350);
+      return res;
+    } finally {
+      if (isRenshaChain) { state.renshaAllowed = false; state._renshaInFlight = false; }
+      if (!wasInProgress) state.attackInProgress = false;
+      if (typeof render === 'function') render();
     }
-    return res;
   };
 
   // きぜつ時のポイント獲得演出
@@ -11729,8 +11830,15 @@ ${ef.text}`, 2200);
 
   const _ppOrigEndTurn = endTurn;
   endTurn = async function () {
-    await ppWait(750, 280);
-    return _ppOrigEndTurn.apply(this, arguments);
+    if (state._endingTurn || state.winner !== null) return;
+    state._endingTurn = true;
+    if (typeof render === 'function') render();
+    try {
+      await ppWait(750, 280);
+      return await _ppOrigEndTurn.apply(this, arguments);
+    } finally {
+      state._endingTurn = false;
+    }
   };
 })();
 </script>

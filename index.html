@@ -146,7 +146,12 @@
 
   .slot {
     width: var(--card-w);
+    min-width: var(--card-w);
+    max-width: var(--card-w);
     height: var(--card-h);
+    min-height: var(--card-h);
+    max-height: var(--card-h);
+    overflow: hidden;
     border: 1.5px dashed rgba(148, 163, 184, 0.35);
     border-radius: 7px;
     display: flex;
@@ -158,8 +163,12 @@
   }
 
   .slot.active-slot {
-    width: calc(var(--card-w) + 10px);
-    height: calc(var(--card-h) + 12px);
+    width: calc(var(--card-w) + 12px);
+    min-width: calc(var(--card-w) + 12px);
+    max-width: calc(var(--card-w) + 12px);
+    height: calc(var(--card-h) + 14px);
+    min-height: calc(var(--card-h) + 14px);
+    max-height: calc(var(--card-h) + 14px);
     border-color: rgba(56, 189, 248, 0.7);
     box-shadow: 0 0 12px rgba(56, 189, 248, 0.2);
   }
@@ -180,6 +189,11 @@
   .card {
     width: 100%;
     height: 100%;
+    min-width: 0;
+    min-height: 0;
+    max-width: 100%;
+    max-height: 100%;
+    box-sizing: border-box;
     border-radius: 6px;
     position: relative;
     overflow: hidden;
@@ -276,14 +290,21 @@
   .card-bottom-overlay {
     position: relative;
     z-index: 3;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    overflow: hidden;
     background: linear-gradient(to top, rgba(0,0,0,0.92) 70%, rgba(0,0,0,0));
-    padding: 2px 2px 2px;
+    padding: 2px 3px 3px;
     display: flex;
     flex-direction: column;
-    gap: 1px;
+    gap: 2px;
   }
 
   .card-name-tag {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
     font-size: 8.5px;
     font-weight: bold;
     white-space: nowrap;
@@ -297,8 +318,11 @@
   .energy-row {
     display: flex;
     flex-wrap: wrap;
-    gap: 1.5px;
+    gap: 2px;
     justify-content: center;
+    background: rgba(2, 6, 23, 0.62);
+    padding: 2px 3px;
+    border-radius: 6px;
   }
 
   .e-orb {
@@ -427,7 +451,13 @@
 
   .hand-card {
     flex: 0 0 var(--card-w);
+    width: var(--card-w);
+    min-width: var(--card-w);
+    max-width: var(--card-w);
     height: var(--card-h);
+    min-height: var(--card-h);
+    max-height: var(--card-h);
+    overflow: hidden;
   }
 
   /* アクションバー */
@@ -587,11 +617,11 @@
     font-size: 12px;
   }
 </style>
-<style>#titleScreen{display:none}.screen-overlay{position:fixed;inset:0;z-index:1001;background:#090b18f5;color:white;overflow:auto;padding:24px;box-sizing:border-box;font-family:system-ui}.builderPanel,.setupPanel{max-width:1100px;margin:auto;background:#191d33;padding:24px;border-radius:18px}.builderGrid,.setupCards{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}.builderGrid article,.setupCards article{background:#292e49;border-radius:12px;padding:8px;display:grid;gap:5px}.builderGrid img,.setupCards img{width:100%;height:160px;object-fit:contain}.builderGrid button,.screen-overlay button,#titleScreen button{cursor:pointer;padding:9px;border-radius:8px;border:0;background:#8b5cf6;color:white}.builderTypes{display:flex;gap:10px;flex-wrap:wrap}.builderTypes label{background:#292e49;padding:6px}.builderPanel footer{position:sticky;bottom:0;background:#191d33;padding:12px}.builderCount{font-size:22px;padding:8px}</style><style id="featureStyles">.builderCurrent{background:#11162a;border:1px solid #4a5276;border-radius:12px;padding:12px;margin:10px 0 16px}.currentDeckGrid{display:flex;gap:8px;overflow-x:auto;min-height:88px}.deckChip{display:flex;align-items:center;gap:6px;min-width:150px;background:#303653;color:white;border:1px solid #727ba3;border-radius:10px;padding:6px;text-align:left}.deckChip img{width:46px;height:64px;object-fit:cover;border-radius:5px}.builderCard{padding:8px;background:#292e49;border-radius:12px;display:flex;flex-direction:column}.cardPreviewButton{display:flex;flex-direction:column;text-align:left;background:transparent;color:white;border:0;padding:0;cursor:pointer}.cardPreviewButton img{width:100%;height:160px;object-fit:contain}.deckCardActions{display:flex;align-items:center;justify-content:center;gap:8px}.setupCards article{cursor:pointer}.detailPanel,.resultPanel{position:relative;width:min(920px,94vw);max-height:90vh;overflow:auto;margin:auto;background:#191d33;border:1px solid #8b5cf6;border-radius:18px;padding:18px;display:grid;grid-template-columns:minmax(220px,40%) 1fr;gap:18px;color:white}.detailPhoto{width:100%;max-height:78vh;object-fit:contain}.detailClose{position:sticky;top:0;grid-column:1/-1;justify-self:end}.detailAttack{padding:10px;margin:8px 0;background:#292e49;border-radius:10px}.resultPanel{display:block;text-align:center;max-width:560px}.resultPanel button{margin:8px;padding:12px 16px}@media(max-width:650px){.detailPanel{grid-template-columns:1fr}.detailPhoto{max-height:50vh}.currentDeckGrid{max-height:150px}}</style><style id="pvpStyles">.passPanel{max-width:520px;padding:32px}.passPanel h2{font-size:28px}.slot.highlight{outline:3px solid #fbbf24;cursor:pointer}.header-btns{display:flex;gap:6px;flex-wrap:wrap}</style><style id="slotActionStyles">.slotActionBar{position:absolute;z-index:30;left:2px;right:2px;bottom:2px;display:flex;justify-content:center;pointer-events:none}.slotActionButton{pointer-events:auto;border:1px solid #f8fafc;border-radius:7px;background:rgba(15,23,42,.94);color:#fff;font-weight:800;font-size:clamp(9px,2.6vw,13px);padding:4px 9px;box-shadow:0 2px 8px #000b;cursor:pointer;white-space:nowrap}.slotActionButton:hover{background:#7c3aed}.slotActionButton:active{transform:scale(.96)}</style><style id="deckResetAndZoomStyles">.energy-current{width:30px;height:30px;font-size:19px;line-height:1;background:radial-gradient(circle at 32% 26%,#fff8,transparent 38%),var(--energy-color,#475569);text-shadow:0 1px 2px #000;box-shadow:inset 0 0 0 2px #ffffff55,0 1px 4px #0008}.e-orb{width:14px;height:14px;font-size:9px;line-height:1;text-shadow:0 1px 2px #000}.energy-current.used{opacity:.4}.cardZoomOverlay{position:fixed;inset:0;z-index:1200;background:#020617f5;display:none;align-items:center;justify-content:center;padding:18px}.zoomedCard{max-width:min(94vw,780px);max-height:88vh;object-fit:contain;box-shadow:0 0 0 1px #ffffff55,0 16px 60px #000}.zoomClose{position:absolute;right:18px;top:18px;padding:10px 14px;border-radius:10px;border:1px solid #94a3b8;background:#0f172a;color:white;font-weight:800}.zoomHint{grid-column:1/-1;font-size:11px;color:#cbd5e1;text-align:center;margin-top:2px}.detail-preview img{cursor:zoom-in}</style><style id="battleFxStyles">.attack-choice.attack-ready{border:2px solid #facc15;box-shadow:0 0 8px #facc15aa,inset 0 0 10px #facc1533;animation:attackReadyPulse 1.05s ease-in-out infinite}.attack-choice.attack-ready:hover{background:#564719;box-shadow:0 0 18px #fde047}.attack-choice.attack-unavailable{border-color:#475569}.battleFxLayer{position:fixed;inset:0;z-index:49;display:flex;align-items:center;justify-content:center;pointer-events:none;overflow:hidden}.battleFx{position:absolute;display:flex;flex-direction:column;align-items:center;gap:2px;min-width:160px;padding:12px 24px;border:2px solid #fff;border-radius:18px;background:#0b1020d9;color:#fff;text-align:center;text-shadow:0 2px 5px #000;box-shadow:0 0 25px #fff7;animation:battleFxBurst .78s cubic-bezier(.16,.8,.24,1) both}.battleFxIcon{font-size:54px;line-height:1;filter:drop-shadow(0 0 8px currentColor)}.battleFxText{font-size:20px;font-weight:1000;letter-spacing:.06em}.battleFx-attack,.battleFx-damage{border-color:#fde047;box-shadow:0 0 34px #f97316aa,0 0 15px #fde047}.battleFx-poison{border-color:#c084fc;box-shadow:0 0 34px #a855f7bb;background:#25123be8}.battleFx-paralysis{border-color:#fde047;box-shadow:0 0 34px #facc15bb;background:#38280de8}.battleFx-burn{border-color:#fb923c;box-shadow:0 0 34px #ef4444bb;background:#3b120de8}.battleFx-asleep{border-color:#7dd3fc;box-shadow:0 0 34px #38bdf8aa;background:#0c2540e8}.battleFx-confused{border-color:#f0abfc;box-shadow:0 0 34px #d946efaa;background:#351044e8}.battleFx-knockout{border-color:#f87171;box-shadow:0 0 40px #ef4444;background:#350b14ee}.battleFx-heal{border-color:#86efac;box-shadow:0 0 34px #22c55eaa;background:#0b321de8}.battleFx-statusTick{border-color:#a7f3d0;box-shadow:0 0 32px #34d399aa;background:#0a302be8}.battleFxShake{animation:battleBoardShake .38s ease-out}@keyframes battleFxBurst{0%{opacity:0;transform:scale(.28) rotate(-8deg)}35%{opacity:1;transform:scale(1.12) rotate(2deg)}65%{transform:scale(.96)}100%{opacity:0;transform:scale(1.2) translateY(-10px)}}@keyframes attackReadyPulse{0%,100%{box-shadow:0 0 6px #facc1577,inset 0 0 5px #facc1522}50%{box-shadow:0 0 18px #fde047,inset 0 0 12px #facc1566}}@keyframes battleBoardShake{0%,100%{transform:translateX(0)}20%{transform:translateX(-5px)}40%{transform:translateX(5px)}60%{transform:translateX(-3px)}80%{transform:translateX(3px)}}</style><style id="tapKoStyles">.promotionPrompt{position:fixed;z-index:1003;top:12px;left:50%;transform:translateX(-50%);max-width:min(92vw,720px);padding:12px 18px;border:2px solid #fbbf24;border-radius:12px;background:#111827f2;color:white;font-weight:800;text-align:center;pointer-events:none;box-shadow:0 8px 25px #0009}.slotActionBar{z-index:50;display:flex;gap:4px;justify-content:center}.slotActionButton{pointer-events:auto}.slotDetailButton{background:#475569}.fieldHpMeter{position:absolute;z-index:5;top:18px;left:5px;right:5px;height:6px;pointer-events:none}.fieldHpMeterTrack{display:block;width:100%;height:100%;overflow:hidden;border:1px solid #fff9;border-radius:999px;background:#111827d9;box-shadow:0 1px 4px #000b}.fieldHpMeterFill{display:block;height:100%;border-radius:999px;background:#4ade80;transition:width .25s ease}.fieldHpMeter.damaged .fieldHpMeterFill{background:#facc15}.fieldHpMeter.critical .fieldHpMeterFill{background:#ef4444}.cardTypeLabel{margin:4px auto;padding:3px 8px;border-radius:6px;background:#1e293bee;color:white;font-size:13px;font-weight:800;text-align:center}</style><style id="mobileFit">
+<style>#titleScreen{display:none}.screen-overlay{position:fixed;inset:0;z-index:1001;background:#090b18f5;color:white;overflow:auto;padding:24px;box-sizing:border-box;font-family:system-ui}.builderPanel,.setupPanel{max-width:1100px;margin:auto;background:#191d33;padding:24px;border-radius:18px}.builderGrid,.setupCards{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}.builderGrid article,.setupCards article{background:#292e49;border-radius:12px;padding:8px;display:grid;gap:5px}.builderGrid img,.setupCards img{width:100%;height:160px;object-fit:contain}.builderGrid button,.screen-overlay button,#titleScreen button{cursor:pointer;padding:9px;border-radius:8px;border:0;background:#8b5cf6;color:white}.builderTypes{display:flex;gap:10px;flex-wrap:wrap}.builderTypes label{background:#292e49;padding:6px}.builderPanel footer{position:sticky;bottom:0;background:#191d33;padding:12px}.builderCount{font-size:22px;padding:8px}</style><style id="featureStyles">.builderCurrent{background:#11162a;border:1px solid #4a5276;border-radius:12px;padding:12px;margin:10px 0 16px}.currentDeckGrid{display:flex;gap:8px;overflow-x:auto;min-height:88px}.deckChip{display:flex;align-items:center;gap:6px;min-width:150px;background:#303653;color:white;border:1px solid #727ba3;border-radius:10px;padding:6px;text-align:left}.deckChip img{width:46px;height:64px;object-fit:cover;border-radius:5px}.builderCard{padding:8px;background:#292e49;border-radius:12px;display:flex;flex-direction:column}.cardPreviewButton{display:flex;flex-direction:column;text-align:left;background:transparent;color:white;border:0;padding:0;cursor:pointer}.cardPreviewButton img{width:100%;height:160px;object-fit:contain}.deckCardActions{display:flex;align-items:center;justify-content:center;gap:8px}.setupCards article{cursor:pointer}.detailPanel,.resultPanel{position:relative;width:min(920px,94vw);max-height:90vh;overflow:auto;margin:auto;background:#191d33;border:1px solid #8b5cf6;border-radius:18px;padding:18px;display:grid;grid-template-columns:minmax(220px,40%) 1fr;gap:18px;color:white}.detailPhoto{width:100%;max-height:78vh;object-fit:contain}.detailClose{position:sticky;top:0;grid-column:1/-1;justify-self:end}.detailAttack{padding:10px;margin:8px 0;background:#292e49;border-radius:10px}.resultPanel{display:block;text-align:center;max-width:560px}.resultPanel button{margin:8px;padding:12px 16px}@media(max-width:650px){.detailPanel{grid-template-columns:1fr}.detailPhoto{max-height:50vh}.currentDeckGrid{max-height:150px}}</style><style id="pvpStyles">.passPanel{max-width:520px;padding:32px}.passPanel h2{font-size:28px}.slot.highlight{outline:3px solid #fbbf24;cursor:pointer}.header-btns{display:flex;gap:6px;flex-wrap:wrap}</style><style id="slotActionStyles">.slotActionBar{position:absolute;z-index:30;left:2px;right:2px;bottom:2px;display:flex;justify-content:center;pointer-events:none}.slotActionButton{pointer-events:auto;border:1px solid #f8fafc;border-radius:7px;background:rgba(15,23,42,.94);color:#fff;font-weight:800;font-size:clamp(9px,2.6vw,13px);padding:4px 9px;box-shadow:0 2px 8px #000b;cursor:pointer;white-space:nowrap}.slotActionButton:hover{background:#7c3aed}.slotActionButton:active{transform:scale(.96)}</style><style id="deckResetAndZoomStyles">.energy-current{width:30px;height:30px;font-size:19px;line-height:1;background:radial-gradient(circle at 32% 26%,#fff8,transparent 38%),var(--energy-color,#475569);text-shadow:0 1px 2px #000;box-shadow:inset 0 0 0 2px #ffffff55,0 1px 4px #0008}.e-orb{width:17px;height:17px;font-size:11px;line-height:1;text-shadow:0 1px 2px #000;border:1.5px solid rgba(255,255,255,.95);box-shadow:0 1px 3px rgba(0,0,0,.85)}@media(max-width:520px){.e-orb{width:15px;height:15px;font-size:10px}}.energy-current.used{opacity:.4}.cardZoomOverlay{position:fixed;inset:0;z-index:1200;background:#020617f5;display:none;align-items:center;justify-content:center;padding:18px}.zoomedCard{max-width:min(94vw,780px);max-height:88vh;object-fit:contain;box-shadow:0 0 0 1px #ffffff55,0 16px 60px #000}.zoomClose{position:absolute;right:18px;top:18px;padding:10px 14px;border-radius:10px;border:1px solid #94a3b8;background:#0f172a;color:white;font-weight:800}.zoomHint{grid-column:1/-1;font-size:11px;color:#cbd5e1;text-align:center;margin-top:2px}.detail-preview img{cursor:zoom-in}</style><style id="battleFxStyles">.attack-choice.attack-ready{border:2px solid #facc15;box-shadow:0 0 8px #facc15aa,inset 0 0 10px #facc1533;animation:attackReadyPulse 1.05s ease-in-out infinite}.attack-choice.attack-ready:hover{background:#564719;box-shadow:0 0 18px #fde047}.attack-choice.attack-unavailable{border-color:#475569}.battleFxLayer{position:fixed;inset:0;z-index:49;display:flex;align-items:center;justify-content:center;pointer-events:none;overflow:hidden}.battleFx{position:absolute;display:flex;flex-direction:column;align-items:center;gap:2px;min-width:160px;padding:12px 24px;border:2px solid #fff;border-radius:18px;background:#0b1020d9;color:#fff;text-align:center;text-shadow:0 2px 5px #000;box-shadow:0 0 25px #fff7;animation:battleFxBurst .78s cubic-bezier(.16,.8,.24,1) both}.battleFxIcon{font-size:54px;line-height:1;filter:drop-shadow(0 0 8px currentColor)}.battleFxText{font-size:20px;font-weight:1000;letter-spacing:.06em}.battleFx-attack,.battleFx-damage{border-color:#fde047;box-shadow:0 0 34px #f97316aa,0 0 15px #fde047}.battleFx-poison{border-color:#c084fc;box-shadow:0 0 34px #a855f7bb;background:#25123be8}.battleFx-paralysis{border-color:#fde047;box-shadow:0 0 34px #facc15bb;background:#38280de8}.battleFx-burn{border-color:#fb923c;box-shadow:0 0 34px #ef4444bb;background:#3b120de8}.battleFx-asleep{border-color:#7dd3fc;box-shadow:0 0 34px #38bdf8aa;background:#0c2540e8}.battleFx-confused{border-color:#f0abfc;box-shadow:0 0 34px #d946efaa;background:#351044e8}.battleFx-knockout{border-color:#f87171;box-shadow:0 0 40px #ef4444;background:#350b14ee}.battleFx-heal{border-color:#86efac;box-shadow:0 0 34px #22c55eaa;background:#0b321de8}.battleFx-statusTick{border-color:#a7f3d0;box-shadow:0 0 32px #34d399aa;background:#0a302be8}.battleFxShake{animation:battleBoardShake .38s ease-out}@keyframes battleFxBurst{0%{opacity:0;transform:scale(.28) rotate(-8deg)}35%{opacity:1;transform:scale(1.12) rotate(2deg)}65%{transform:scale(.96)}100%{opacity:0;transform:scale(1.2) translateY(-10px)}}@keyframes attackReadyPulse{0%,100%{box-shadow:0 0 6px #facc1577,inset 0 0 5px #facc1522}50%{box-shadow:0 0 18px #fde047,inset 0 0 12px #facc1566}}@keyframes battleBoardShake{0%,100%{transform:translateX(0)}20%{transform:translateX(-5px)}40%{transform:translateX(5px)}60%{transform:translateX(-3px)}80%{transform:translateX(3px)}}</style><style id="tapKoStyles">.promotionPrompt{position:fixed;z-index:1003;top:12px;left:50%;transform:translateX(-50%);max-width:min(92vw,720px);padding:12px 18px;border:2px solid #fbbf24;border-radius:12px;background:#111827f2;color:white;font-weight:800;text-align:center;pointer-events:none;box-shadow:0 8px 25px #0009}.slotActionBar{z-index:50;display:flex;gap:4px;justify-content:center}.slotActionButton{pointer-events:auto}.slotDetailButton{background:#475569}.fieldHpMeter{position:absolute;z-index:5;top:18px;left:5px;right:5px;height:6px;pointer-events:none}.fieldHpMeterTrack{display:block;width:100%;height:100%;overflow:hidden;border:1px solid #fff9;border-radius:999px;background:#111827d9;box-shadow:0 1px 4px #000b}.fieldHpMeterFill{display:block;height:100%;border-radius:999px;background:#4ade80;transition:width .25s ease}.fieldHpMeter.damaged .fieldHpMeterFill{background:#facc15}.fieldHpMeter.critical .fieldHpMeterFill{background:#ef4444}.cardTypeLabel{margin:4px auto;padding:3px 8px;border-radius:6px;background:#1e293bee;color:white;font-size:13px;font-weight:800;text-align:center}</style><style id="mobileFit">
 /* ===== スマホ画面ぴったり ===== */
 :root{
-  --card-h:clamp(52px,10.4dvh,100px);
-  --card-w:min(calc(var(--card-h)*.72),17vw);
+  --card-h:clamp(68px,12.8dvh,118px);
+  --card-w:min(calc(var(--card-h)*.74),19.5vw);
 }
 html,body{position:fixed;inset:0;width:100%;height:100%;height:100dvh;overflow:hidden;overscroll-behavior:none;-webkit-text-size-adjust:100%}
 #app{width:100%;max-width:460px;height:100%;height:100dvh;padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right)}
@@ -1506,8 +1536,8 @@ header {
 /* ===== スマホ1画面ぴったり最適化 ===== */
 @media (max-width: 520px) {
   :root {
-    --card-h: clamp(50px, 9.6dvh, 92px);
-    --card-w: min(calc(var(--card-h) * 0.72), 16.5vw);
+    --card-h: clamp(60px, 11.4dvh, 104px);
+    --card-w: min(calc(var(--card-h) * 0.74), 18.5vw);
   }
   #app {
     max-width: 100vw !important;
@@ -1521,8 +1551,12 @@ header {
   .zone-row { gap: 6px !important; }
   .bench-row { gap: 4px !important; }
   .slot.active-slot {
-    width: calc(var(--card-w) + 6px) !important;
-    height: calc(var(--card-h) + 8px) !important;
+    width: calc(var(--card-w) + 10px) !important;
+    min-width: calc(var(--card-w) + 10px) !important;
+    max-width: calc(var(--card-w) + 10px) !important;
+    height: calc(var(--card-h) + 12px) !important;
+    min-height: calc(var(--card-h) + 12px) !important;
+    max-height: calc(var(--card-h) + 12px) !important;
   }
   .energy-zone { width: 58px !important; padding: 3px 4px !important; }
   .center-hud { padding: 2px 6px !important; flex-shrink: 0; }
@@ -1546,7 +1580,7 @@ header {
 }
 @media (max-height: 700px) and (max-width: 520px) {
   :root {
-    --card-h: clamp(46px, 8.8dvh, 76px);
+    --card-h: clamp(54px, 10.2dvh, 88px);
   }
   .log-box { height: 22px !important; }
   .btn-action { min-height: 34px !important; font-size: 11px !important; }
@@ -6142,6 +6176,16 @@ function openCardDetailModal(card, opts = {}) {
   if (opts.fieldMon) {
     const fm = opts.fieldMon;
     const rows = [];
+    const eList = fm.energies || [];
+    const eCounts = {};
+    eList.forEach(e => { eCounts[e] = (eCounts[e] || 0) + 1; });
+    const eSummaryHtml = eList.length > 0
+      ? Object.entries(eCounts).map(([e, cnt]) => {
+          const ei = TYPE_INFO[e] || { icon: '★', label: e, color: '#64748b' };
+          return `<span class="detail-status-chip" style="background:${ei.color};border:1px solid rgba(255,255,255,.85);color:#fff;text-shadow:0 1px 2px #000;">${ei.icon} ${ei.label} ×${cnt}</span>`;
+        }).join(' ')
+      : `<span style="color:#94a3b8;">なし</span>`;
+    rows.push(`<div class="detail-status-row"><span class="detail-status-chip" style="background:#0f172a;border:1px solid #38bdf8;color:#7dd3fc;">⚡ エネルギー（計${eList.length}個）</span><span style="display:flex;flex-wrap:wrap;gap:4px;align-items:center;">${eSummaryHtml}</span></div>`);
     (fm.statuses || []).forEach(s => {
       const info = STATUS_INFO[s] || { icon: '⚠️', label: s, cls: `st-${s}`, desc: '' };
       rows.push(`<div class="detail-status-row"><span class="detail-status-chip ${info.cls}">${info.icon} ${info.label}</span><span style="color:#e2e8f0;">${info.desc}</span></div>`);
@@ -7075,7 +7119,7 @@ showSetup = function () {
 
 if (!document.getElementById('deckResetAndZoomStyles')) {
   const st = document.createElement('style'); st.id = 'deckResetAndZoomStyles';
-  st.textContent = '.energy-current{width:30px;height:30px;font-size:19px;line-height:1;background:radial-gradient(circle at 32% 26%,#fff8,transparent 38%),var(--energy-color,#475569);text-shadow:0 1px 2px #000;box-shadow:inset 0 0 0 2px #ffffff55,0 1px 4px #0008}.e-orb{width:14px;height:14px;font-size:9px;line-height:1;text-shadow:0 1px 2px #000}.energy-current.used{opacity:.4}.cardZoomOverlay{position:fixed;inset:0;z-index:1200;background:#020617f5;display:none;align-items:center;justify-content:center;padding:18px}.zoomedCard{max-width:min(94vw,780px);max-height:88vh;object-fit:contain;box-shadow:0 0 0 1px #ffffff55,0 16px 60px #000}.zoomClose{position:absolute;right:18px;top:18px;padding:10px 14px;border-radius:10px;border:1px solid #94a3b8;background:#0f172a;color:white;font-weight:800}.zoomHint{grid-column:1/-1;font-size:11px;color:#cbd5e1;text-align:center;margin-top:2px}.detail-preview img{cursor:zoom-in}';
+  st.textContent = '.energy-current{width:30px;height:30px;font-size:19px;line-height:1;background:radial-gradient(circle at 32% 26%,#fff8,transparent 38%),var(--energy-color,#475569);text-shadow:0 1px 2px #000;box-shadow:inset 0 0 0 2px #ffffff55,0 1px 4px #0008}.e-orb{width:17px;height:17px;font-size:11px;line-height:1;text-shadow:0 1px 2px #000;border:1.5px solid rgba(255,255,255,.95);box-shadow:0 1px 3px rgba(0,0,0,.85)}@media(max-width:520px){.e-orb{width:15px;height:15px;font-size:10px}}.energy-current.used{opacity:.4}.cardZoomOverlay{position:fixed;inset:0;z-index:1200;background:#020617f5;display:none;align-items:center;justify-content:center;padding:18px}.zoomedCard{max-width:min(94vw,780px);max-height:88vh;object-fit:contain;box-shadow:0 0 0 1px #ffffff55,0 16px 60px #000}.zoomClose{position:absolute;right:18px;top:18px;padding:10px 14px;border-radius:10px;border:1px solid #94a3b8;background:#0f172a;color:white;font-weight:800}.zoomHint{grid-column:1/-1;font-size:11px;color:#cbd5e1;text-align:center;margin-top:2px}.detail-preview img{cursor:zoom-in}';
   document.head.appendChild(st);
 }
 if (!document.getElementById('battleFxStyles')) {

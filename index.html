@@ -2406,7 +2406,7 @@ const ADDITIONAL_CARDS = [
     makeAtk('レゲエドロー', ['grass'], 0, 'draw_1', '自分の山札を1枚引く。'),
     makeAtk('ジャマイカビート', ['grass','grass','grass'], 90, 'confuse_opp', '相手のバトルポケモンをこんらんにする。')], { isEx: true }),
   makeMon('shocky_saiyan', 'ショッキーサイヤ人', 'lightning', 130, 'fighting', null, 3, [
-    makeAtk('ギガショックアルティメット', ['lightning','lightning','colorless'], 110, 'opp_bench_30', '相手のベンチ全員にも30ダメージ。')], { ability: { name: 'しょうげきオーラ', effectId: 'paralyze_on_switch_in', description: '手札からベンチに出したとき1回使える。相手をマヒにする。' } }),
+    makeAtk('ギガショックアルティメット', ['lightning','lightning','colorless'], 110, 'opp_bench_30', '相手のベンチ全員にも30ダメージ。')], { ability: { name: 'しょうげきオーラ', effectId: 'paralyze_on_bench_play', description: '手札からベンチに出したとき1回使える。相手をマヒにする。' } }),
   { id: 'nakayoshi_supporter', name: '仲良しこよし', category: 'supporter', type: 'supporter', effectId: 'switch_damaged_opp', description: '相手のベンチにいるダメージを受けているポケモンをバトルポケモンと入れ替える。' },
   makeMon('09_ozama', '09おざま', 'water', 130, 'lightning', null, 2, [
     makeAtk('スプラッシュ', ['colorless'], 0, 'attach_water_energy', '山札から水エネルギー1個をこのポケモンにつける。'),
@@ -3160,12 +3160,25 @@ async function endTurn() {
 
   addLog(`--- ${p.name}の番終了 ---`);
 
-  [p.active, ...p.bench].filter(Boolean).forEach(mon => {
-    if (mon.card.ability?.effectId === 'kuikake_end_heal_10' && mon.currentHp < mon.maxHp) {
-      mon.currentHp = Math.min(mon.maxHp, mon.currentHp + 10);
-      addLog(`🍫 食いかけ！「${mon.card.name}」のHPが10回復した！`);
-    }
-  });
+  if (!abilitiesDisabled(p)) {
+    [p.active, ...p.bench].filter(Boolean).forEach(mon => {
+      if (!mon.abilityNullified && mon.card.ability?.effectId === 'kuikake_end_heal_10' && mon.currentHp < mon.maxHp) {
+        mon.currentHp = Math.min(mon.maxHp, mon.currentHp + 10);
+        addLog(`🍫 食いかけ！「${mon.card.name}」のHPが10回復した！`);
+      }
+    });
+  }
+  const secretLoveCount = countFieldAbility(p, 'secret_love');
+  const secretOppIdx = state.currentPlayer === 0 ? 1 : 0;
+  const secretOpp = state.players[secretOppIdx];
+  if (secretLoveCount > 0 && secretOpp?.active) {
+    const loveDmg = 10 * secretLoveCount;
+    secretOpp.active.currentHp -= loveDmg;
+    addLog(`💘 特性「シークレットラブ」発動！相手の「${secretOpp.active.card.name}」に${loveDmg}ダメージ！`);
+    render();
+    triggerCardHitEffect(secretOppIdx, 'active');
+    await checkKnockout(secretOppIdx);
+  }
 
   if (p.active) {
     await processPokemonCheck(state.currentPlayer);
@@ -3230,12 +3243,16 @@ async function processPokemonCheck(playerIdx) {
   }
 
   if (mon.statuses.includes('asleep')) {
-    const heads = await flipCoin(`${mon.card.name}のねむり判定`);
-    if (heads) {
-      mon.statuses = mon.statuses.filter(s => s !== 'asleep');
-      addLog(`☀️ コインはオモテ！${mon.card.name}は目を覚ました！`);
+    if ((mon.cantWakeUntilTurn || 0) >= state.turnCount) {
+      addLog(`💤 うたたねの効果で、この番「${mon.card.name}」はねむりから回復しない！`);
     } else {
-      addLog(`💤 コインはウラ…${mon.card.name}は眠っている。`);
+      const heads = await flipCoin(`${mon.card.name}のねむり判定`);
+      if (heads) {
+        mon.statuses = mon.statuses.filter(s => s !== 'asleep');
+        addLog(`☀️ コインはオモテ！${mon.card.name}は目を覚ました！`);
+      } else {
+        addLog(`💤 コインはウラ…${mon.card.name}は眠っている。`);
+      }
     }
   }
 
@@ -3336,6 +3353,17 @@ function playCardFromHand(handIndex) {
     p.bench.push(newMon);
     addLog(`${p.name}はベンチに「${card.name}」を出した！`);
     if (!abilitiesDisabled()) {
+      if (card.ability?.effectId === 'paralyze_on_bench_play') {
+        const opp = state.players[1 - state.currentPlayer];
+        if (opp?.active) {
+          if (canApplyStatus(opp.active)) {
+            if (!opp.active.statuses.includes('paralysis')) opp.active.statuses.push('paralysis');
+            addLog(`⚡ 特性【${card.ability.name}】発動！相手の「${opp.active.card.name}」をマヒにした！`);
+          } else {
+            addLog(`「${opp.active.card.name}」は状態異常にならない！`);
+          }
+        }
+      }
       if (card.ability?.effectId === 'yogiri_no_iatsu') {
         const opp = state.players[1 - state.currentPlayer];
         if (opp) {
@@ -3575,23 +3603,36 @@ function resolveSupporter(player, card) {
   if (card.effectId === 'shouta_luna_boost') {
     player.tempDamageBonus += 30;
     addLog('しょうたのルーナ：この番、バトルポケモンのワザのダメージ+30！');
-    const fireIndex = player.active?.energies.indexOf('fire') ?? -1;
+    const energies = player.active?.energies || [];
     const targets = player.bench.filter(Boolean);
-    if (fireIndex >= 0 && targets.length) {
-      const moveEnergy = (target) => {
-        const moved = player.active.energies.splice(fireIndex, 1)[0];
-        target.energies.push(moved);
-        addLog(`炎エネルギーを「${target.card.name}」につけ替えた！`);
+    if (energies.length > 0 && targets.length > 0) {
+      const uniqueTypes = [...new Set(energies)];
+      const pickTargetAndMove = (eType) => {
+        const eIdx = player.active.energies.indexOf(eType);
+        if (eIdx < 0) return;
+        const moveEnergy = (target) => {
+          const moved = player.active.energies.splice(eIdx, 1)[0];
+          target.energies.push(moved);
+          addLog(`${TYPE_INFO[moved]?.label || moved}エネルギーを「${target.card.name}」につけ替えた！`);
+        };
+        if (player.isCpu || targets.length === 1) { moveEnergy(targets[0]); render(); }
+        else {
+          const modal = document.getElementById('modalContent');
+          modal.innerHTML = `<div class="modal-title"><span>${TYPE_INFO[eType]?.label || eType}エネルギーのつけ替え先を選択</span></div><div class="attack-btn-list">${targets.map((m, i) => `<button class="attack-choice" onclick="window.__moveLunaEnergy(${i})">${m.card.name}</button>`).join('')}</div>`;
+          window.__moveLunaEnergy = (i) => { moveEnergy(targets[i]); closeModal(); render(); };
+          document.getElementById('modalBackdrop').classList.add('open');
+        }
       };
-      if (player.isCpu) moveEnergy(targets[0]);
-      else {
+      if (player.isCpu || uniqueTypes.length === 1) {
+        pickTargetAndMove(uniqueTypes[0]);
+      } else {
         const modal = document.getElementById('modalContent');
-        modal.innerHTML = `<div class="modal-title"><span>炎エネルギーのつけ替え先を選択</span></div><div class="attack-btn-list">${targets.map((m, i) => `<button class="attack-choice" onclick="window.__moveLunaEnergy(${i})">${m.card.name}</button>`).join('')}</div>`;
-        window.__moveLunaEnergy = (i) => { moveEnergy(targets[i]); closeModal(); render(); };
+        modal.innerHTML = `<div class="modal-title"><span>ベンチにつけ替えるエネルギーを選択</span></div><div class="attack-btn-list">${uniqueTypes.map((et, idx) => `<button class="attack-choice" onclick="window.__pickLunaEnergyType(${idx})">${TYPE_INFO[et]?.icon || ''} ${TYPE_INFO[et]?.label || et}エネルギー</button>`).join('')}</div>`;
+        window.__pickLunaEnergyType = (idx) => { closeModal(); pickTargetAndMove(uniqueTypes[idx]); };
         document.getElementById('modalBackdrop').classList.add('open');
       }
     } else {
-      addLog('バトルポケモンに炎エネルギーがないか、つけ替え先がいないため、エネルギーは動かせない。');
+      addLog('バトルポケモンにエネルギーがないか、つけ替え先がいないため、エネルギーは動かせない。');
     }
   }
 
@@ -4093,6 +4134,22 @@ async function executeAttack(attackIndex, extraChoice = null) {
     }
   }
 
+  if (atk.effectId === 'optional_discard_2_plus60' && extraChoice === null) {
+    if (attacker.energies.length < 2) {
+      extraChoice = 'no';
+    } else if (attackerPlayer.isCpu) {
+      extraChoice = 'yes';
+    } else {
+      openChoiceModal(
+        '巨人の一撃：エネルギーを2個トラッシュしてダメージ+60にしますか？',
+        'はい（2個トラッシュして+60）',
+        'いいえ（ダメージのみ）',
+        () => executeAttack(attackIndex, 'yes'),
+        () => executeAttack(attackIndex, 'no')
+      );
+      return;
+    }
+  }
   if (atk.effectId === 'optional_discard_1_confuse' && extraChoice === null) {
     if (attacker.energies.length === 0) {
       extraChoice = 'no';
@@ -4142,7 +4199,7 @@ async function executeAttack(attackIndex, extraChoice = null) {
   }
 
   // 相手の「ザ・ワールド」無敵判定（黄金の回転・だまりのいちげきは効果無視）
-  const ignoreOppEffects = atk.effectId === 'golden_spin_ko' || atk.effectId === 'damari_no_ichigeki';
+  const ignoreOppEffects = atk.effectId === 'golden_spin_ko' || atk.effectId === 'damari_no_ichigeki' || atk.effectId === 'ignore_effects';
   const isDefenderInvincible = !ignoreOppEffects && defender.invincibleUntilTurn >= state.turnCount;
   const kishiBlocked = hasActiveAbility(defenderPlayer, 'kishi_tsukai') && attacker.card.name.includes('岸');
   const kishiBetrayalBlocked = defender.card.ability?.effectId === 'kishi_betrayal' && attacker.card.name.includes('岸');
@@ -4222,6 +4279,30 @@ async function executeAttack(attackIndex, extraChoice = null) {
     dmg += 20;
     addLog('⚾ メジャーデビュー：進化したターンなので+20ダメージ！');
   }
+  if (atk.effectId === 'bonus_if_asleep_50' && defender.statuses.includes('asleep')) {
+    dmg += 50;
+    addLog('💤 ゆめうつつ：相手がねむり状態なので+50ダメージ！');
+  }
+  if (atk.effectId === 'optional_discard_2_plus60' && extraChoice === 'yes' && attacker.energies.length >= 2) {
+    attacker.energies.splice(0, 2);
+    dmg += 60;
+    addLog('💥 巨人の一撃！エネルギーを2個トラッシュして+60ダメージ！');
+  }
+  if (atk.effectId === 'ramp_damage_10') {
+    const ramp = attacker.uniWaveBonus || 0;
+    if (ramp > 0) {
+      dmg += ramp;
+      addLog(`🌊 うにウェーブ：蓄積効果で+${ramp}ダメージ！`);
+    }
+    attacker.uniWaveBonus = ramp + 10;
+  }
+  if (atk.effectId === 'love_kiseki') {
+    const hasLove = pl => [pl.active, ...pl.bench].some(m => m && (m.card.name.includes('愛') || m.card.ability?.description?.includes('愛') || m.card.id === 'kindan_no_koi'));
+    if (hasLove(attackerPlayer) && hasLove(defenderPlayer)) {
+      dmg += 100;
+      addLog('💘 愛のキセキ！おたがいに「愛」があるため+100ダメージ！');
+    }
+  }
   if (atk.effectId === 'asleep_plus_90' && attacker.statuses.includes('asleep')) {
     dmg += 90;
     addLog('💤 夢のなかの大暴れ：ねむり状態なので+90ダメージ！');
@@ -4273,7 +4354,7 @@ async function executeAttack(attackIndex, extraChoice = null) {
         dmg += GAME_CONFIG.WEAKNESS_BONUS;
         addLog(`弱点ヒット！(+${GAME_CONFIG.WEAKNESS_BONUS})`);
       }
-      if (atk.effectId !== 'neat_the_life' && defender.card.resistance && defender.card.resistance === attacker.card.type) {
+      if (atk.effectId !== 'neat_the_life' && !ignoreOppEffects && defender.card.resistance && defender.card.resistance === attacker.card.type) {
         dmg = Math.max(0, dmg - GAME_CONFIG.RESISTANCE_REDUCE);
         addLog(`抵抗力でダメージ軽減(-${GAME_CONFIG.RESISTANCE_REDUCE})`);
       }
@@ -4371,10 +4452,117 @@ async function executeAttack(attackIndex, extraChoice = null) {
   } else if (kishiBlocked && atk.effectId) {
     addLog(`🛡️ タマカズの特性「岸使い」の効果で、ワザの効果は発動しない！`);
   } else switch (atk.effectId) {
+    case 'heal_self_20':
+      attacker.currentHp = Math.min(attacker.maxHp, attacker.currentHp + 20);
+      addLog(`💚 ${attacker.card.name}のHPが20回復した！`);
+      render();
+      break;
     case 'heal_self_30':
       attacker.currentHp = Math.min(attacker.maxHp, attacker.currentHp + 30);
       addLog(`💚 ${attacker.card.name}のHPが30回復した！`);
       render();
+      break;
+    case 'confuse_heal_50':
+      attacker.currentHp = Math.min(attacker.maxHp, attacker.currentHp + 50);
+      addLog(`💚 ${attacker.card.name}のHPが50回復した！`);
+      if (defender.effectInvincibleUntilTurn >= state.turnCount) addLog(`「${defender.card.name}」はワザの効果を受けない！`);
+      else if (!canApplyStatus(defender)) addLog(`「${defender.card.name}」は状態異常にならない！`);
+      else {
+        if (!defender.statuses.includes('confused')) defender.statuses.push('confused');
+        addLog(`😵 「${defender.card.name}」をこんらんにした！`);
+      }
+      render();
+      break;
+    case 'ko_and_invincible':
+      attacker.invincibleUntilTurn = state.turnCount + 1;
+      addLog(`🎭 「${attacker.card.name}」は次の相手の番、ワザのダメージを受けない！`);
+      if (defender.effectInvincibleUntilTurn >= state.turnCount) addLog(`「${defender.card.name}」はワザの効果を受けない！`);
+      else {
+        defender.currentHp = 0;
+        addLog(`💀 劇団ひとり劇場！「${defender.card.name}」をきぜつさせた！`);
+      }
+      render();
+      break;
+    case 'mega_break':
+      attacker.energies = [];
+      addLog(`💥 「${attacker.card.name}」のエネルギーをすべてトラッシュ！`);
+      if (defenderPlayer.bench.length > 0) {
+        defenderPlayer.bench.forEach((b, bi) => {
+          b.currentHp -= 200;
+          triggerCardHitEffect(defenderPlayerIdx, 'bench', bi);
+        });
+        addLog('💥 相手のベンチポケモン全員にも200ダメージ！');
+      }
+      if (defender.effectInvincibleUntilTurn >= state.turnCount) addLog(`「${defender.card.name}」はワザの効果を受けない！`);
+      else {
+        defender.currentHp = 0;
+        addLog(`💀 わんわんコンボルブレイク！相手の「${defender.card.name}」をきぜつさせた！`);
+      }
+      render();
+      break;
+    case 'love_kiseki': {
+      const hasLove = pl => [pl.active, ...pl.bench].some(m => m && (m.card.name.includes('愛') || m.card.ability?.description?.includes('愛') || m.card.id === 'kindan_no_koi'));
+      if (hasLove(attackerPlayer) && hasLove(defenderPlayer)) {
+        if (defender.effectInvincibleUntilTurn >= state.turnCount) addLog(`「${defender.card.name}」はワザの効果を受けない！`);
+        else if (!canApplyStatus(defender)) addLog(`「${defender.card.name}」は状態異常にならない！`);
+        else {
+          if (!defender.statuses.includes('paralysis')) defender.statuses.push('paralysis');
+          addLog(`⚡ 愛のキセキ！相手の「${defender.card.name}」をマヒにした！`);
+        }
+      }
+      break;
+    }
+    case 'sleep_opp_no_wake':
+      attacker.cantWakeUntilTurn = state.turnCount + 2;
+      addLog(`💤 次の自分の番、「${attacker.card.name}」はねむりから回復しない！`);
+      if (defender.effectInvincibleUntilTurn >= state.turnCount) addLog(`「${defender.card.name}」はワザの効果を受けない！`);
+      else if (!canApplyStatus(defender)) addLog(`「${defender.card.name}」は状態異常にならない！`);
+      else {
+        if (!defender.statuses.includes('asleep')) defender.statuses.push('asleep');
+        addLog(`💤 「${defender.card.name}」をねむりにした！`);
+      }
+      break;
+    case 'recoil_180':
+      attacker.currentHp -= 180;
+      addLog(`💥 自爆！「${attacker.card.name}」にも180ダメージ！`);
+      render();
+      triggerCardHitEffect(state.currentPlayer, 'active');
+      break;
+    case 'recoil_30_lock':
+      attacker.currentHp -= 30;
+      attacker.cantAttackUntilTurn = state.turnCount + 2;
+      addLog(`💥 「${attacker.card.name}」にも30ダメージ！次の自分の番ワザを使えない。`);
+      render();
+      triggerCardHitEffect(state.currentPlayer, 'active');
+      break;
+    case 'coin_recoil_20':
+      if (!(await flipCoin(`${atk.name}の反動チェック`))) {
+        attacker.currentHp -= 20;
+        addLog(`💥 ウラ…「${attacker.card.name}」にも20ダメージ！`);
+        render();
+        triggerCardHitEffect(state.currentPlayer, 'active');
+      } else {
+        addLog(`✨ オモテ！「${attacker.card.name}」は反動を受けなかった！`);
+      }
+      break;
+    case 'block_retreat':
+      if (defender.effectInvincibleUntilTurn >= state.turnCount) addLog(`「${defender.card.name}」はワザの効果を受けない！`);
+      else {
+        defender.cantRetreatUntilTurn = state.turnCount + 1;
+        addLog(`🔒 相手の次の番、「${defender.card.name}」はにげられない！`);
+      }
+      break;
+    case 'recoil_30_confuse':
+      attacker.currentHp -= 30;
+      addLog(`💥 「${attacker.card.name}」にも30ダメージ！`);
+      render();
+      triggerCardHitEffect(state.currentPlayer, 'active');
+      if (defender.effectInvincibleUntilTurn >= state.turnCount) addLog(`「${defender.card.name}」はワザの効果を受けない！`);
+      else if (!canApplyStatus(defender)) addLog(`「${defender.card.name}」は状態異常にならない！`);
+      else {
+        if (!defender.statuses.includes('confused')) defender.statuses.push('confused');
+        addLog(`😵 「${defender.card.name}」をこんらんにした！`);
+      }
       break;
     case 'sleep_opp':
       if (defender.effectInvincibleUntilTurn >= state.turnCount) addLog(`「${defender.card.name}」はワザの効果を受けない！`);
@@ -7562,6 +7750,16 @@ function cardPlayability(card, p) {
   const mons = fieldMons(p);
   if (card.effectId === 'fairy_tool')
     return mons.some(m => m.card.type === 'fairy' && !m.tool) ? { ok: true } : { ok: false, reason: 'つけられるフェアリーポケモンがいません（1匹に1枚まで）' };
+  if (card.effectId === 'mugen_ice_goods')
+    return (p.active && p.active.currentHp < p.active.maxHp) ? { ok: true } : { ok: false, reason: 'バトルポケモンがダメージを受けていません' };
+  if (card.effectId === 'pakkuncho_goods') {
+    const opp = state.players.find(x => x !== p);
+    return (p.active && opp && [opp.active, ...opp.bench].some(m => m && m.energies.length > 0)) ? { ok: true } : { ok: false, reason: 'つけ替えられるエネルギーがありません' };
+  }
+  if (card.effectId === 'self_poison_opp_burn') {
+    const opp = state.players.find(x => x !== p);
+    return (p.active && opp && opp.active) ? { ok: true } : { ok: false, reason: 'お互いのバトル場にポケモンが必要です' };
+  }
   if (card.effectId === 'heal_status_30')
     return mons.some(m => m.currentHp < m.maxHp || (m.statuses && m.statuses.length)) ? { ok: true } : { ok: false, reason: '回復できるポケモンがいません（ダメージ・特殊状態なし）' };
   if (ATTACH_TOOLS.includes(card.effectId))
@@ -7646,25 +7844,7 @@ function playGoodsOrTool(i) {
         }
         render();
       })();
-    } else if (card.effectId === 'pakkuncho_goods') {
-      p.discard.push(card);
-      const opp = oppOf(p);
-      (async () => {
-        if (await flipCoin('パックンチョ')) {
-          let moved = 0;
-          const oppMons = [opp.active, ...opp.bench].filter(Boolean);
-          for (let k = 0; k < 2 && p.active; k++) {
-            const src = oppMons.find(m => m.energies.length > 0);
-            if (!src) break;
-            p.active.energies.push(src.energies.pop());
-            moved++;
-          }
-          addLog(`🍫 パックンチョ！オモテ！相手のエネルギーを${moved}個「${p.active?.card.name}」につけ替えた！`);
-        } else {
-          addLog('🍫 パックンチョ：ウラが出たため効果なし。');
-        }
-        render();
-      })();
+
     } else if (card.effectId === 'self_poison_opp_burn') {
       p.discard.push(card);
       const opp = oppOf(p);
@@ -7851,6 +8031,7 @@ runCpuTurn = async function () {
       if (i < 0) break;
       const c = p.hand[i];
       (c.category === 'stadium' ? playStadium : playGoodsOrTool)(i);
+      if (typeof waitForFx === 'function') await waitForFx();
       if (p.hand[i] === c) break;
     }
   }
@@ -8225,7 +8406,7 @@ runCpuTurn = async function () {
         if (canApplyStatus(opp.active) && !opp.active.statuses.includes('confused')) {
           opp.active.statuses.push('confused');
         }
-        opp.active.cantRetreatUntilTurn = state.turnCount + 2;
+        opp.active.cantRetreatUntilTurn = state.turnCount + 1;
         addLog(`💫 相手の「${opp.active.card.name}」はこんらんし、次の番にげられなくなった！`);
       }
       render();
@@ -8302,6 +8483,21 @@ runCpuTurn = async function () {
     render();
   };
 
+  SUP.denjo_heal = function (player, card) {
+    const targets = fieldMons(player).filter(m => m.card.name.includes('殿堂') || (m.card.ability && m.card.ability.name && m.card.ability.name.includes('殿堂')));
+    if (!targets.length) { addLog('対上がれ殿堂：場に「殿堂」写真カードがないため不発！'); return; }
+    const applyDenjo = m => {
+      const before = m.currentHp;
+      m.currentHp = Math.min(m.maxHp, m.currentHp + 100);
+      m.nextTurnDmgBonus = (m.nextTurnDmgBonus || 0) + 50;
+      m.nextTurnDmgBonusTurn = state.turnCount;
+      addLog(`👑 対上がれ殿堂！「${m.card.name}」のHPを${m.currentHp - before}回復し、この番ワザのダメージ+50！`);
+      render();
+    };
+    if (player.isCpu || targets.length === 1) applyDenjo(targets[0]);
+    else pickFrom(player, targets, monLabel, '対上がれ殿堂：回復＆強化する殿堂カードを選択', applyDenjo);
+  };
+
   const _rs = resolveSupporter;
   resolveSupporter = function (player, card) {
     if (card?.name) { state.usedCardNames = state.usedCardNames || []; state.usedCardNames.push(card.name); }
@@ -8349,6 +8545,10 @@ runCpuTurn = async function () {
           if (opp.bench.length < GAME_CONFIG.MAX_BENCH)
             return { ok: false, reason: '相手のベンチが埋まっていません' };
           break;
+        case 'denjo_heal':
+          if (!fieldMons(p).some(m => m.card.name.includes('殿堂') || (m.card.ability && m.card.ability.name && m.card.ability.name.includes('殿堂'))))
+            return { ok: false, reason: '場に「殿堂」写真カードがありません' };
+          break;
       }
       return { ok: true };
     }
@@ -8382,6 +8582,59 @@ runCpuTurn = async function () {
       m.tool = card;
       m.maxHp += 30; m.currentHp += 30;
       addLog(`${p.name}は「${m.card.name}」にどうぐ「${card.name}」をつけた！（最大HP+30、ワザ+20）`);
+    } else if (card.effectId === 'mugen_ice_goods') {
+      if (p.active) {
+        const before = p.active.currentHp;
+        p.active.currentHp = Math.min(p.active.maxHp, p.active.currentHp + 20);
+        addLog(`🍨 無限アイス！「${p.active.card.name}」のHPを${p.active.currentHp - before}回復した！`);
+        if (typeof showBattleFx === 'function') showBattleFx('heal', '🍨 無限アイス +20');
+      }
+      asyncBusy++; syncBusy();
+      flipCoin('無限アイス').then(heads => {
+        if (heads) {
+          p.hand.push(card);
+          addLog('✨ オモテ！無限アイスはトラッシュせず手札に戻った！');
+        } else {
+          p.discard.push(card);
+          addLog('ウラ…無限アイスはトラッシュされた。');
+        }
+      }).finally(() => {
+        asyncBusy--; syncBusy();
+        render();
+      });
+    } else if (card.effectId === 'pakkuncho_goods') {
+      p.discard.push(card);
+      const opp = oppOf(p);
+      asyncBusy++; syncBusy();
+      (async () => {
+        if (await flipCoin('パックンチョ')) {
+          let moved = 0;
+          const oppMons = [opp?.active, ...(opp?.bench || [])].filter(Boolean);
+          for (let k = 0; k < 2 && p.active; k++) {
+            const srcMon = oppMons.find(om => om.energies.length > 0);
+            if (!srcMon) break;
+            p.active.energies.push(srcMon.energies.pop());
+            moved++;
+          }
+          addLog(`🍫 パックンチョ！オモテ！相手のエネルギーを${moved}個「${p.active?.card.name}」につけ替えた！`);
+        } else {
+          addLog('🍫 パックンチョ：ウラが出たため効果なし。');
+        }
+      })().finally(() => {
+        asyncBusy--; syncBusy();
+        render();
+      });
+    } else if (card.effectId === 'self_poison_opp_burn') {
+      p.discard.push(card);
+      const opp = oppOf(p);
+      if (p.active && canApplyStatus(p.active) && !p.active.statuses.includes('poison')) {
+        p.active.statuses.push('poison');
+        addLog(`☠️ ${p.name}の「${p.active.card.name}」がどくになった！`);
+      }
+      if (opp?.active && canApplyStatus(opp.active) && !opp.active.statuses.includes('burn')) {
+        opp.active.statuses.push('burn');
+        addLog(`🔥 相手の「${opp.active.card.name}」をやけどにした！`);
+      }
     } else if (card.effectId === 'heal_status_30') {
       m.currentHp = Math.min(m.maxHp, m.currentHp + 30); m.statuses = [];
       p.discard.push(card);
@@ -9225,8 +9478,11 @@ runCpuTurn = async function () {
   }
   .title-deck-pills {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 6px;
+    max-height: 156px;
+    overflow-y: auto;
+    padding-right: 2px;
   }
   #titleScreen .deck-slot-pill {
     display: flex !important;
@@ -9286,8 +9542,11 @@ runCpuTurn = async function () {
   }
   .builder-slots-grid {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
     gap: 8px;
+    max-height: 220px;
+    overflow-y: auto;
+    padding-right: 4px;
   }
   .builder-slot-card {
     background: #1e2440;
@@ -9472,7 +9731,7 @@ runCpuTurn = async function () {
   const ACCOUNTS_STORAGE_KEY = 'pocket_accounts_v1';
   const ACTIVE_ACCOUNT_KEY = 'pocket_active_account_v1';
   const GUEST_DECKS_KEY = 'pocket_guest_decks_v1';
-  const MAX_DECK_SLOTS = 3;
+  const MAX_DECK_SLOTS = 20;
   const CLOUD_MQTT_URL = 'wss://broker.emqx.io:8084/mqtt';
   const CLOUD_TOPIC_PREFIX = 'pocket_card_battle_cloud_acc_v1/';
 
@@ -9845,7 +10104,7 @@ runCpuTurn = async function () {
   }
 
   function normalizeDecksArray(arr) {
-    const out = [null, null, null];
+    const out = Array(MAX_DECK_SLOTS).fill(null);
     if (Array.isArray(arr)) {
       for (let i = 0; i < MAX_DECK_SLOTS; i++) {
         out[i] = normalizeDeckSlot(arr[i], 'デッキ' + (i + 1));
@@ -9911,7 +10170,9 @@ runCpuTurn = async function () {
     const baseCfg = validDeck(deckConfig?.ids, deckConfig?.types)
       ? { name: 'デッキ1', ids: [...deckConfig.ids], types: [...deckConfig.types], updatedAt: Date.now() }
       : null;
-    return { decks: [baseCfg, null, null], activeDeckIndex: 0 };
+    const decks = Array(MAX_DECK_SLOTS).fill(null);
+    decks[0] = baseCfg;
+    return { decks, activeDeckIndex: 0 };
   }
 
   function saveGuestDecksState(st) {
@@ -10258,7 +10519,7 @@ runCpuTurn = async function () {
     }).join('');
     deckBar.innerHTML = `
       <div class="title-deck-switcher-label">
-        <span>🃏 使用デッキ（最大3種類）</span>
+        <span>🃏 使用デッキ（最大${MAX_DECK_SLOTS}種類）</span>
         <span style="color:#94a3b8;font-weight:600;">タップで切替</span>
       </div>
       <div class="title-deck-pills">${pillsHtml}</div>
@@ -11012,7 +11273,89 @@ ${ef.text}`, 2200);
   }
   window.__applyCrazySprayForMon = applyCrazySprayForMon;
 
-  // Reset turn bonuses & trigger 1DAY crazy spray at startTurn
+  function showCrazySprayRoulette(monName, isCpu = false, forcedIdx = null) {
+    const chosenIdx = (forcedIdx !== null && forcedIdx >= 0 && forcedIdx < 6)
+      ? forcedIdx
+      : Math.floor(Math.random() * 6);
+    const ef = CRAZY_SPRAY_EFFECTS[chosenIdx];
+
+    return new Promise(resolve => {
+      let overlay = document.getElementById('crazySprayRouletteOverlay');
+      if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = 'crazySprayRouletteOverlay';
+        document.body.appendChild(overlay);
+      }
+
+      const labelsHtml = CRAZY_SPRAY_EFFECTS.map((item, i) => {
+        const angle = i * 60 + 30;
+        return `<span class="spray-wheel-label" style="transform: rotate(${angle}deg) translate(-50%, -74px) rotate(${-angle}deg);">${item.label}</span>`;
+      }).join('');
+
+      overlay.innerHTML = `
+        <div class="spray-roulette-box">
+          <div class="spray-roulette-title">🎨 1DAYクレイジースプレー ルーレット</div>
+          <div class="spray-roulette-sub">「${monName}」のこのターンの色を決定中…</div>
+          <div class="spray-roulette-wheel-wrap">
+            <div class="spray-roulette-pointer"></div>
+            <div class="spray-roulette-wheel" id="crazySprayWheel">
+              ${labelsHtml}
+              <div class="spray-roulette-center">🎨</div>
+            </div>
+          </div>
+          <div class="spray-roulette-result" id="crazySprayResult">ルーレット回転中…</div>
+          <button type="button" class="spray-roulette-skip" id="crazySpraySkipBtn">ストップ</button>
+        </div>
+      `;
+      overlay.classList.add('open');
+
+      const wheel = document.getElementById('crazySprayWheel');
+      const resultEl = document.getElementById('crazySprayResult');
+      const skipBtn = document.getElementById('crazySpraySkipBtn');
+      const targetAngle = 360 * 5 - (chosenIdx * 60 + 30);
+      const spinMs = isCpu ? 850 : 1550;
+
+      let done = false;
+      let finishTimer = null;
+      let closeTimer = null;
+
+      const revealResult = () => {
+        if (done) return;
+        done = true;
+        if (finishTimer) clearTimeout(finishTimer);
+        wheel.style.transition = 'transform 0.15s ease-out';
+        wheel.style.transform = `rotate(${targetAngle}deg)`;
+        resultEl.style.borderColor = ef.color;
+        resultEl.innerHTML = `<span class="sprayColorPill" style="background:${ef.color};margin-right:6px;">${ef.label}</span><span>${ef.text}</span>`;
+        skipBtn.textContent = 'OK';
+        PocketSFX.play('spray');
+        closeTimer = setTimeout(() => {
+          overlay.classList.remove('open');
+          resolve(chosenIdx);
+        }, isCpu ? 650 : 850);
+      };
+
+      skipBtn.onclick = () => {
+        if (!done) {
+          revealResult();
+        } else {
+          if (closeTimer) clearTimeout(closeTimer);
+          overlay.classList.remove('open');
+          resolve(chosenIdx);
+        }
+      };
+
+      requestAnimationFrame(() => {
+        wheel.style.transition = `transform ${spinMs}ms cubic-bezier(0.14, 0.86, 0.2, 1)`;
+        wheel.style.transform = `rotate(${targetAngle}deg)`;
+      });
+
+      finishTimer = setTimeout(revealResult, spinMs + 50);
+    });
+  }
+  window.__showCrazySprayRoulette = showCrazySprayRoulette;
+
+  // Reset turn bonuses & trigger 1DAY crazy spray roulette at startTurn
   const _stWithSpray = startTurn;
   startTurn = function (idx, first = false) {
     const prevP = state.players?.[idx];
@@ -11025,16 +11368,33 @@ ${ef.text}`, 2200);
     if (!p || state.winner !== null) return;
     const sprayMons = [p.active, ...(p.bench || [])].filter(m => m && m.tool && m.tool.effectId === 'crazy_spray_tool');
     if (sprayMons.length > 0) {
-      sprayMons.forEach((m, k) => {
-        setTimeout(async () => {
-          if (state.winner !== null) return;
-          applyCrazySprayForMon(idx, m);
-          render();
-          if (p.active && p.active.currentHp <= 0) await checkKnockout(idx);
-          await checkBenchKnockouts(p, state.players[1 - idx]);
-        }, 350 + k * 950);
-      });
+      state._sprayPending = true;
+      setTimeout(async () => {
+        try {
+          for (const m of sprayMons) {
+            if (state.winner !== null) break;
+            if (p.active !== m && !(p.bench || []).includes(m)) continue;
+            const chosenIdx = await showCrazySprayRoulette(m.card.name, !!p.isCpu);
+            if (state.winner !== null) break;
+            applyCrazySprayForMon(idx, m, chosenIdx);
+            render();
+            if (p.active && p.active.currentHp <= 0) await checkKnockout(idx);
+            await checkBenchKnockouts(p, state.players[1 - idx]);
+          }
+        } finally {
+          state._sprayPending = false;
+        }
+      }, 400);
     }
+  };
+
+  // Ensure CPU waits for 1DAY crazy spray roulette to finish before acting
+  const _cpuWaitSpray = runCpuTurn;
+  runCpuTurn = async function () {
+    while (state._sprayPending && state.winner === null) {
+      await new Promise(r => setTimeout(r, 80));
+    }
+    return _cpuWaitSpray.apply(this, arguments);
   };
 
   // ==========================================================
@@ -11495,6 +11855,128 @@ ${ef.text}`, 2200);
   }
   #ppPointBanner.show { display: block; }
 
+
+  /* 1DAYクレイジースプレー ルーレット */
+  #crazySprayRouletteOverlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1200;
+    background: rgba(8, 12, 28, 0.78);
+    backdrop-filter: blur(4px);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+  }
+  #crazySprayRouletteOverlay.open { display: flex; }
+  .spray-roulette-box {
+    width: min(360px, 94vw);
+    background: linear-gradient(160deg, #1e2445, #11152c);
+    border: 2px solid #fbbf24;
+    border-radius: 18px;
+    padding: 16px 16px 14px;
+    color: #f8fafc;
+    text-align: center;
+    box-shadow: 0 18px 45px rgba(0, 0, 0, 0.65);
+  }
+  .spray-roulette-title {
+    font-size: 15px;
+    font-weight: 900;
+    color: #fde047;
+    margin-bottom: 4px;
+  }
+  .spray-roulette-sub {
+    font-size: 12px;
+    color: #cbd5e1;
+    margin-bottom: 12px;
+  }
+  .spray-roulette-wheel-wrap {
+    position: relative;
+    width: 210px;
+    height: 210px;
+    margin: 0 auto 12px;
+  }
+  .spray-roulette-pointer {
+    position: absolute;
+    top: -12px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 0;
+    height: 0;
+    border-left: 11px solid transparent;
+    border-right: 11px solid transparent;
+    border-top: 18px solid #fde047;
+    filter: drop-shadow(0 2px 4px rgba(0,0,0,0.7));
+    z-index: 3;
+  }
+  .spray-roulette-wheel {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    border: 4px solid #f8fafc;
+    box-shadow: 0 0 24px rgba(251, 191, 36, 0.35), inset 0 0 12px rgba(0,0,0,0.45);
+    background: conic-gradient(
+      #ec4899 0deg 60deg,
+      #3b82f6 60deg 120deg,
+      #ef4444 120deg 180deg,
+      #a855f7 180deg 240deg,
+      #94a3b8 240deg 300deg,
+      #eab308 300deg 360deg
+    );
+    position: relative;
+    transform: rotate(0deg);
+  }
+  .spray-wheel-label {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    font-size: 12px;
+    font-weight: 900;
+    color: #fff;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.9);
+    transform-origin: 0 0;
+    pointer-events: none;
+  }
+  .spray-roulette-center {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    background: #0f172a;
+    border: 3px solid #fde047;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    z-index: 2;
+  }
+  .spray-roulette-result {
+    min-height: 44px;
+    padding: 8px 10px;
+    border-radius: 10px;
+    background: rgba(15, 23, 42, 0.85);
+    border: 1px solid #334155;
+    font-size: 12.5px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 10px;
+  }
+  .spray-roulette-skip {
+    background: #334155;
+    color: #f8fafc;
+    border: 1px solid #475569;
+    border-radius: 8px;
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
   .battleFxShakeHard {
     animation: ppShakeHard 0.48s ease-out !important;
   }
@@ -11794,6 +12276,7 @@ ${ef.text}`, 2200);
       ['choice_plus30_or_heal30', 'optional_paralyze_opp', 'mada_hairu'].includes(atk.effectId) ||
       (atk.effectId === 'optional_discard_stadium' && !!state.stadium) ||
       (atk.effectId === 'optional_discard_1_confuse' && attacker.energies.length > 0) ||
+      (atk.effectId === 'optional_discard_2_plus60' && attacker.energies.length >= 2) ||
       (atk.effectId === 'friends_korogari_2' && player.bench.filter(b => b.energies.includes('metal')).length > 1)
     ));
 

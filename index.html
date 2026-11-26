@@ -10876,6 +10876,12 @@ runCpuTurn = async function () {
       name: acc.name,
       decks: normalizeDecksArray(acc.decks),
       activeDeckIndex: acc.activeDeckIndex || 0,
+      cardFrame: typeof acc.cardFrame === 'string' ? acc.cardFrame : 'default',
+      unlockedFrames: Array.isArray(acc.unlockedFrames) ? Array.from(new Set(['default', ...acc.unlockedFrames])) : ['default'],
+      passState: {
+        wins: Math.max(0, Number(acc.passState?.wins) || 0),
+        coins: Math.max(0, Number(acc.passState?.coins) || 0)
+      },
       updatedAt: acc.updatedAt || Date.now()
     };
     const plainBytes = new TextEncoder().encode(JSON.stringify(payloadObj));
@@ -10921,6 +10927,12 @@ runCpuTurn = async function () {
         name: (parsed.name || parsed.id).slice(0, 16),
         decks: normalizeDecksArray(parsed.decks),
         activeDeckIndex: typeof parsed.activeDeckIndex === 'number' ? parsed.activeDeckIndex : 0,
+        cardFrame: typeof parsed.cardFrame === 'string' ? parsed.cardFrame : 'default',
+        unlockedFrames: Array.isArray(parsed.unlockedFrames) ? Array.from(new Set(['default', ...parsed.unlockedFrames])) : ['default'],
+        passState: {
+          wins: Math.max(0, Number(parsed.passState?.wins) || 0),
+          coins: Math.max(0, Number(parsed.passState?.coins) || 0)
+        },
         updatedAt: parsed.updatedAt || Date.now()
       };
     } catch (e) {
@@ -11274,8 +11286,45 @@ runCpuTurn = async function () {
     if (mpInp) mpInp.value = cleanName;
     editingDeckSlot = idx;
     editingDeckName = (decks[idx] && decks[idx].name) ? decks[idx].name : ('デッキ' + (idx + 1));
+    if (typeof window.__onAccountFramePassChanged === 'function') window.__onAccountFramePassChanged();
     return true;
   }
+
+  window.__accFramePassBridge = {
+    isLoggedIn: () => !!getActiveAccountId(),
+    load: () => {
+      const acc = getActiveAccount();
+      if (!acc) return null;
+      return {
+        cardFrame: typeof acc.cardFrame === 'string' ? acc.cardFrame : 'default',
+        unlockedFrames: Array.isArray(acc.unlockedFrames) ? Array.from(new Set(['default', ...acc.unlockedFrames])) : ['default'],
+        passState: {
+          wins: Math.max(0, Number(acc.passState?.wins) || 0),
+          coins: Math.max(0, Number(acc.passState?.coins) || 0)
+        }
+      };
+    },
+    save: (data) => {
+      const accId = getActiveAccountId();
+      if (!accId) return false;
+      const accounts = loadAccounts();
+      if (!accounts[accId]) return false;
+      if (typeof data.cardFrame === 'string') accounts[accId].cardFrame = data.cardFrame;
+      if (Array.isArray(data.unlockedFrames)) {
+        accounts[accId].unlockedFrames = Array.from(new Set(['default', ...data.unlockedFrames]));
+      }
+      if (data.passState && typeof data.passState === 'object') {
+        accounts[accId].passState = {
+          wins: Math.max(0, Number(data.passState.wins) || 0),
+          coins: Math.max(0, Number(data.passState.coins) || 0)
+        };
+      }
+      accounts[accId].updatedAt = Date.now();
+      saveAccounts(accounts);
+      scheduleCloudPush(accId);
+      return true;
+    }
+  };
 
   // 既存の名前保存関数を拡張してアカウント＋クラウドとも同期
   const _origGetSavedPlayerNameGlobal = getSavedPlayerNameGlobal;
@@ -11548,6 +11597,7 @@ runCpuTurn = async function () {
     cloudSyncStatus = 'idle';
     const titleInp = document.getElementById('titlePlayerNameInput');
     if (titleInp) titleInp.value = _origGetSavedPlayerNameGlobal();
+    if (typeof window.__onAccountFramePassChanged === 'function') window.__onAccountFramePassChanged();
     renderTitleAccountUI();
     if (typeof showToast === 'function') showToast('ログアウトしました（データはクラウドとアカウントに保存されています）', 2000);
   }
@@ -15795,6 +15845,65 @@ if (_homeSettingsBtn) _homeSettingsBtn.addEventListener('click', openHomeSetting
   .hand-card .card.cf-frame-snap_neon_magenta { box-shadow: 0 0 7px #e879f9 !important; }
   .hand-card .card.cf-frame-blue_aura { box-shadow: 0 0 7px #38bdf8 !important; }
   .hand-card .card.cf-frame-crimson_aura { box-shadow: 0 0 7px #ef4444 !important; }
+
+  /* ===== 技ボタンのレイアウト修正（縦長防止＆コンパクト化） ===== */
+  .attack-choice {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    justify-content: flex-start !important;
+    text-align: left !important;
+    width: 100% !important;
+    padding: 9px 12px !important;
+    gap: 3px !important;
+  }
+  .action-bar .btn-action {
+    min-height: 36px !important;
+    padding: 6px 6px !important;
+    white-space: nowrap !important;
+  }
+
+  /* ===== 発動できる技の超発光エフェクト ===== */
+  .attack-choice.attack-ready {
+    position: relative;
+    overflow: hidden;
+    border: 2px solid #fde047 !important;
+    background: linear-gradient(135deg, rgba(120, 53, 15, 0.92), rgba(161, 98, 7, 0.85), rgba(30, 41, 59, 0.95)) !important;
+    box-shadow: 0 0 14px rgba(253, 224, 71, 0.92), 0 0 28px rgba(245, 158, 11, 0.65), inset 0 0 16px rgba(253, 224, 71, 0.42) !important;
+    animation: cfAttackReadySuperGlow 1.05s ease-in-out infinite !important;
+  }
+  .attack-choice.attack-ready::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(115deg, transparent 22%, rgba(255, 255, 255, 0.35) 45%, rgba(253, 224, 71, 0.35) 55%, transparent 74%);
+    background-size: 240% 240%;
+    animation: cfSheenMove 1.8s linear infinite;
+  }
+  .attack-choice.attack-ready:hover {
+    background: linear-gradient(135deg, rgba(161, 98, 7, 0.95), rgba(202, 138, 4, 0.9)) !important;
+    box-shadow: 0 0 22px #fef08a, 0 0 38px rgba(251, 191, 36, 0.9) !important;
+  }
+  @keyframes cfAttackReadySuperGlow {
+    0%, 100% {
+      box-shadow: 0 0 12px rgba(250, 204, 21, 0.85), 0 0 24px rgba(245, 158, 11, 0.55), inset 0 0 12px rgba(253, 224, 71, 0.32);
+      transform: scale(1);
+    }
+    50% {
+      box-shadow: 0 0 22px #fef08a, 0 0 38px rgba(251, 191, 36, 0.95), inset 0 0 20px rgba(254, 240, 138, 0.55);
+      transform: scale(1.015);
+    }
+  }
+  #btnAttack.btn-attack-ready {
+    box-shadow: 0 0 14px rgba(253, 224, 71, 0.9), 0 0 26px rgba(239, 68, 68, 0.75) !important;
+    outline: 2px solid #fde047;
+    animation: cfBtnAttackPulse 1.1s ease-in-out infinite;
+  }
+  @keyframes cfBtnAttackPulse {
+    0%, 100% { box-shadow: 0 0 10px rgba(253, 224, 71, 0.75), 0 0 20px rgba(239, 68, 68, 0.6); }
+    50% { box-shadow: 0 0 20px #fef08a, 0 0 34px rgba(251, 191, 36, 0.95); }
+  }
 </style>
 <script id="customCardFrameScript">
 (function () {
@@ -15841,45 +15950,82 @@ if (_homeSettingsBtn) _homeSettingsBtn.addEventListener('click', openHomeSetting
     try { localStorage.setItem(k, v); } catch (e) {}
   }
 
-  // 解放済みフレーム管理（初期はスタンダードのみ）
+  // 解放済みフレーム・パス進行・装備フレームの読み込み（アカウント連携対応）
   let unlockedFrames = ['default'];
-  try {
-    const rawUnl = safeGet(UNLOCKED_FRAMES_KEY, '');
-    if (rawUnl) {
-      const parsed = JSON.parse(rawUnl);
-      if (Array.isArray(parsed)) {
-        unlockedFrames = Array.from(new Set(['default', ...parsed.filter(id => CARD_FRAMES.some(f => f.id === id))]));
-      }
-    }
-  } catch (e) {
-    unlockedFrames = ['default'];
-  }
-
-  // パス進行＆コイン管理（1勝で1進行、5勝ごとに1コイン）
   let passState = { wins: 0, coins: 0 };
-  try {
-    const rawPass = safeGet(PASS_STATE_KEY, '');
-    if (rawPass) {
-      const parsed = JSON.parse(rawPass);
-      if (parsed && typeof parsed === 'object') {
-        passState.wins = Math.max(0, Number(parsed.wins) || 0);
-        passState.coins = Math.max(0, Number(parsed.coins) || 0);
-      }
+  let equippedFrameId = 'default';
+
+  function loadProgressFromStorageOrAccount() {
+    const accData = window.__accFramePassBridge?.load?.();
+    if (accData) {
+      unlockedFrames = Array.from(new Set(['default', ...(accData.unlockedFrames || []).filter(id => CARD_FRAMES.some(f => f.id === id))]));
+      passState = {
+        wins: Math.max(0, Number(accData.passState?.wins) || 0),
+        coins: Math.max(0, Number(accData.passState?.coins) || 0)
+      };
+      equippedFrameId = unlockedFrames.includes(accData.cardFrame) ? accData.cardFrame : 'default';
+      return;
     }
-  } catch (e) {}
 
-  function saveUnlockedFrames() {
-    safeSet(UNLOCKED_FRAMES_KEY, JSON.stringify(unlockedFrames));
-  }
-  function savePassState() {
-    safeSet(PASS_STATE_KEY, JSON.stringify(passState));
+    unlockedFrames = ['default'];
+    try {
+      const rawUnl = safeGet(UNLOCKED_FRAMES_KEY, '');
+      if (rawUnl) {
+        const parsed = JSON.parse(rawUnl);
+        if (Array.isArray(parsed)) {
+          unlockedFrames = Array.from(new Set(['default', ...parsed.filter(id => CARD_FRAMES.some(f => f.id === id))]));
+        }
+      }
+    } catch (e) { unlockedFrames = ['default']; }
+
+    passState = { wins: 0, coins: 0 };
+    try {
+      const rawPass = safeGet(PASS_STATE_KEY, '');
+      if (rawPass) {
+        const parsed = JSON.parse(rawPass);
+        if (parsed && typeof parsed === 'object') {
+          passState.wins = Math.max(0, Number(parsed.wins) || 0);
+          passState.coins = Math.max(0, Number(parsed.coins) || 0);
+        }
+      }
+    } catch (e) {}
+
+    equippedFrameId = safeGet(FRAME_STORAGE_KEY, 'default');
+    if (!unlockedFrames.includes(equippedFrameId)) {
+      equippedFrameId = 'default';
+      safeSet(FRAME_STORAGE_KEY, 'default');
+    }
   }
 
-  let equippedFrameId = safeGet(FRAME_STORAGE_KEY, 'default');
-  if (!unlockedFrames.includes(equippedFrameId)) {
-    equippedFrameId = 'default';
-    safeSet(FRAME_STORAGE_KEY, 'default');
+  function persistAllFrameAndPass() {
+    if (window.__accFramePassBridge?.isLoggedIn?.()) {
+      window.__accFramePassBridge.save({
+        cardFrame: equippedFrameId,
+        unlockedFrames,
+        passState
+      });
+    } else {
+      safeSet(FRAME_STORAGE_KEY, equippedFrameId);
+      safeSet(UNLOCKED_FRAMES_KEY, JSON.stringify(unlockedFrames));
+      safeSet(PASS_STATE_KEY, JSON.stringify(passState));
+    }
   }
+
+  function saveUnlockedFrames() { persistAllFrameAndPass(); }
+  function savePassState() { persistAllFrameAndPass(); }
+
+  loadProgressFromStorageOrAccount();
+
+  window.__onAccountFramePassChanged = function () {
+    loadProgressFromStorageOrAccount();
+    previewFrameId = equippedFrameId;
+    lastGachaResult = null;
+    renderHomeCustomStrip();
+    renderHomePassStrip();
+    if (typeof render === 'function' && typeof state !== 'undefined' && state?.players?.length === 2) {
+      render();
+    }
+  };
   let applyToOpponent = safeGet(FRAME_OPP_KEY, '0') === '1';
   let previewFrameId = equippedFrameId;
   let lastGachaResult = null;
@@ -15906,7 +16052,7 @@ if (_homeSettingsBtn) _homeSettingsBtn.addEventListener('click', openHomeSetting
     if (!unlockedFrames.includes(fid)) return false;
     equippedFrameId = fid;
     previewFrameId = fid;
-    safeSet(FRAME_STORAGE_KEY, fid);
+    persistAllFrameAndPass();
     renderHomeCustomStrip();
     if (typeof render === 'function' && typeof state !== 'undefined' && state?.players?.length === 2) {
       render();
@@ -16162,6 +16308,16 @@ if (_homeSettingsBtn) _homeSettingsBtn.addEventListener('click', openHomeSetting
         if (state.players[myIdx]) state.players[myIdx].cardFrame = getEquippedCardFrameId();
       }
       _cfOrigRender.apply(this, arguments);
+      const btnAtk = document.getElementById('btnAttack');
+      if (btnAtk && typeof state !== 'undefined' && Array.isArray(state.players)) {
+        const myIdx = typeof renderPlayerIndex === 'number' ? renderPlayerIndex : (state.isMultiplayer ? state.mpLocalIdx : 0);
+        const me = state.players[myIdx];
+        let anyReady = false;
+        if (!btnAtk.disabled && me?.active?.card?.attacks && typeof canUseAttack === 'function') {
+          anyReady = me.active.card.attacks.some((_, idx) => canUseAttack(me.active, idx));
+        }
+        btnAtk.classList.toggle('btn-attack-ready', anyReady);
+      }
       const handEl = document.getElementById('myHand');
       if (handEl) {
         handEl.querySelectorAll('.hand-card').forEach(wrap => {
@@ -16380,7 +16536,7 @@ if (_homeSettingsBtn) _homeSettingsBtn.addEventListener('click', openHomeSetting
           previewFrameId = fid;
           if (unlockedFrames.includes(fid)) {
             equippedFrameId = fid;
-            safeSet(FRAME_STORAGE_KEY, fid);
+            persistAllFrameAndPass();
             renderHomeCustomStrip();
             if (typeof render === 'function' && typeof state !== 'undefined' && state?.players?.length === 2) {
               render();

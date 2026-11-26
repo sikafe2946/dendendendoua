@@ -3736,6 +3736,11 @@ async function processPokemonCheck(playerIdx, isTurnOwner = true) {
     addLog(`☠️ ${mon.card.name}は「どく」で${GAME_CONFIG.POISON_DAMAGE}ダメージ！`);
     render();
     triggerCardHitEffect(playerIdx, 'active');
+    if (typeof showBattleFx === 'function') showBattleFx('statusTick', `☠️ ${GAME_CONFIG.POISON_DAMAGE} ダメージ`);
+    if (mon.currentHp <= 0) {
+      await checkKnockout(playerIdx);
+      return;
+    }
   }
 
   if (mon.statuses.includes('burn')) {
@@ -3748,11 +3753,19 @@ async function processPokemonCheck(playerIdx, isTurnOwner = true) {
     }
     render();
     triggerCardHitEffect(playerIdx, 'active');
+    if (typeof showBattleFx === 'function') showBattleFx('statusTick', `🔥 ${GAME_CONFIG.BURN_DAMAGE} ダメージ`);
+    if (mon.currentHp <= 0) {
+      await checkKnockout(playerIdx);
+      return;
+    }
+    await new Promise(r => setTimeout(r, 320));
     const heads = await flipCoin(`${mon.card.name}のやけど判定`);
     if (heads) {
       mon.statuses = mon.statuses.filter(s => s !== 'burn');
       mon.burnHealTarget = null;
       addLog(`✨ コインはオモテ！「やけど」が治った！`);
+      if (typeof showBattleFx === 'function') showBattleFx('heal', 'やけどが治った');
+      render();
     }
   }
   if (isTurnOwner && mon.sheerHeartTurn && mon.sheerHeartTurn <= state.turnCount) {
@@ -8012,13 +8025,16 @@ executeAttack = async function (attackIndex, extraChoice = null) {
 };
 
 const _processPokemonCheckWithFx = processPokemonCheck;
-processPokemonCheck = async function (playerIndex) {
+processPokemonCheck = async function (playerIndex, isTurnOwner = true) {
   const player = state.players[playerIndex], mon = player?.active;
-  if (!mon) return _processPokemonCheckWithFx(playerIndex);
+  if (!mon) return _processPokemonCheckWithFx.apply(this, arguments);
   const hp = mon.currentHp, statuses = new Set(mon.statuses), discard = player.discard.length;
-  await _processPokemonCheckWithFx(playerIndex);
-  if (mon.currentHp < hp) showBattleFx('statusTick', `${hp-mon.currentHp} ダメージ`);
-  for (const status of statuses) if (!mon.statuses.includes(status)) showBattleFx('heal', ({poison:'どくが治った',paralysis:'マヒが治った',burn:'やけどが治った',asleep:'目を覚ました',confused:'こんらんが治った'})[status] || '状態回復');
+  await _processPokemonCheckWithFx.apply(this, arguments);
+  for (const status of statuses) {
+    if (status !== 'burn' && !mon.statuses.includes(status)) {
+      showBattleFx('heal', ({poison:'どくが治った',paralysis:'マヒが治った',asleep:'目を覚ました',confused:'こんらんが治った'})[status] || '状態回復');
+    }
+  }
   if (hp > 0 && mon.currentHp <= 0 && player.discard.length > discard) showBattleFx('knockout');
 };
 

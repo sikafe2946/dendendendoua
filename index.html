@@ -3781,7 +3781,11 @@ async function processPokemonCheck(playerIdx, isTurnOwner = true) {
   if (mon.statuses.includes('asleep')) {
     if ((mon.cantWakeUntilTurn || 0) >= state.turnCount) {
       addLog(`💤 うたたねの効果で、この番「${mon.card.name}」はねむりから回復しない！`);
+    } else if (mon._lastSleepCheckTurn === state.turnCount && mon._lastSleepCheckOwner === playerIdx) {
+      // Guard against duplicate sleep coin flips within the same Pokemon Checkup
     } else {
+      mon._lastSleepCheckTurn = state.turnCount;
+      mon._lastSleepCheckOwner = playerIdx;
       const heads = await flipCoin(`${mon.card.name}のねむり判定`);
       if (heads) {
         mon.statuses = mon.statuses.filter(s => s !== 'asleep');
@@ -9712,6 +9716,7 @@ runCpuTurn = async function () {
     state.mpLocalIdx = 0;
   }
 
+  window.mpSend = mpSend;
   function mpSend(payload) {
     if (!mpRoomCode) return;
     const msg = { ...payload, sender: mpLocalRole, mid: Math.random().toString(36).slice(2) + Date.now().toString(36) };
@@ -9816,6 +9821,7 @@ runCpuTurn = async function () {
     }, 45);
   }
 
+  window.mpHandleMessage = mpHandleMessage;
   function mpHandleMessage(raw) {
     let msg;
     try { msg = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch (e) { return; }
@@ -9875,6 +9881,13 @@ runCpuTurn = async function () {
         addLog(`配置完了！先攻は「${state.players[firstIdx].name}」です！`);
         startTurn(firstIdx, true);
         mpSend({ type: 'START_BATTLE', snap: mpBuildSnapshot() });
+      }
+      return;
+    }
+
+    if (msg.type === 'CRAZY_SPRAY_ROULETTE') {
+      if (typeof window.__showCrazySprayRoulette === 'function') {
+        window.__showCrazySprayRoulette(msg.monName || 'ポケモン', false, msg.chosenIdx);
       }
       return;
     }
@@ -12157,13 +12170,20 @@ ${ef.text}`, 2200);
     if (!p || state.winner !== null) return;
     const sprayMons = [p.active, ...(p.bench || [])].filter(m => m && m.tool && m.tool.effectId === 'crazy_spray_tool');
     if (sprayMons.length > 0) {
+      if (state.isMultiplayer && ((typeof mpApplyingRemote !== 'undefined' && mpApplyingRemote) || idx !== state.mpLocalIdx)) {
+        return; // Remote side receives CRAZY_SPRAY_ROULETTE & STATE_SYNC
+      }
       state._sprayPending = true;
       setTimeout(async () => {
         try {
           for (const m of sprayMons) {
             if (state.winner !== null) break;
             if (p.active !== m && !(p.bench || []).includes(m)) continue;
-            const chosenIdx = await showCrazySprayRoulette(m.card.name, !!p.isCpu);
+            const pickedIdx = Math.floor(Math.random() * 6);
+            if (state.isMultiplayer && typeof window.mpSend === 'function') {
+              window.mpSend({ type: 'CRAZY_SPRAY_ROULETTE', monName: m.card.name, chosenIdx: pickedIdx });
+            }
+            const chosenIdx = await showCrazySprayRoulette(m.card.name, !!p.isCpu, pickedIdx);
             if (state.winner !== null) break;
             applyCrazySprayForMon(idx, m, chosenIdx);
             render();

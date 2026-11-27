@@ -10118,7 +10118,7 @@ runCpuTurn = async function () {
             const tLen = (body[0] << 8) | body[1];
             const payloadBytes = body.slice(2 + tLen);
             const str = new TextDecoder().decode(payloadBytes);
-            mpHandleMessage(str);
+            window.mpHandleMessage(str);
           }
         }
       };
@@ -10139,10 +10139,14 @@ runCpuTurn = async function () {
     mpBc = null; mpWs = null;
     state.isMultiplayer = false;
     state.mpLocalIdx = 0;
+    window.__mpPeerCardFrame = 'default';
   }
 
-  window.mpSend = mpSend;
+  window.mpSend = _mpSendImpl;
   function mpSend(payload) {
+    return window.mpSend ? window.mpSend(payload) : _mpSendImpl(payload);
+  }
+  function _mpSendImpl(payload) {
     if (!mpRoomCode) return;
     const msg = { ...payload, sender: mpLocalRole, mid: Math.random().toString(36).slice(2) + Date.now().toString(36) };
     seenMids.add(msg.mid);
@@ -10246,8 +10250,11 @@ runCpuTurn = async function () {
     }, 45);
   }
 
-  window.mpHandleMessage = mpHandleMessage;
+  window.mpHandleMessage = _mpHandleMessageImpl;
   function mpHandleMessage(raw) {
+    return window.mpHandleMessage ? window.mpHandleMessage(raw) : _mpHandleMessageImpl(raw);
+  }
+  function _mpHandleMessageImpl(raw) {
     let msg;
     try { msg = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch (e) { return; }
     if (!msg || !msg.type) return;
@@ -10385,6 +10392,8 @@ runCpuTurn = async function () {
       deckConfig = mpPeerDeck;
       p1 = createPlayerState(guestName, false);
     } finally { deckConfig = saved; }
+    p0.cardFrame = typeof getEquippedCardFrameId === 'function' ? getEquippedCardFrameId() : 'default';
+    p1.cardFrame = window.__mpPeerCardFrame || 'default';
 
     state.turnCount = 1;
     state.firstPlayer = Math.random() < 0.5 ? 0 : 1;
@@ -10652,7 +10661,7 @@ runCpuTurn = async function () {
 
     if (typeof BroadcastChannel !== 'undefined') {
       mpBc = new BroadcastChannel('pocket_card_mp_' + mpRoomCode);
-      mpBc.onmessage = e => mpHandleMessage(e.data);
+      mpBc.onmessage = e => window.mpHandleMessage(e.data);
     }
     mpConnectMqtt(mpRoomCode);
   };
@@ -10671,7 +10680,7 @@ runCpuTurn = async function () {
 
     if (typeof BroadcastChannel !== 'undefined') {
       mpBc = new BroadcastChannel('pocket_card_mp_' + mpRoomCode);
-      mpBc.onmessage = e => mpHandleMessage(e.data);
+      mpBc.onmessage = e => window.mpHandleMessage(e.data);
       sendJoin();
     }
     mpConnectMqtt(mpRoomCode, sendJoin);
@@ -10684,9 +10693,12 @@ runCpuTurn = async function () {
     mpRoomCode = String(opts.roomCode);
     mpPeerName = (opts.peerName || 'オンライン相手').trim();
     mpPeerDeck = opts.peerDeck || { ids: [...DEFAULT_DECK_IDS], types: [...DEFAULT_ENERGY_TYPES] };
+    if (opts.peerCardFrame) {
+      window.__mpPeerCardFrame = opts.peerCardFrame;
+    }
     if (typeof BroadcastChannel !== 'undefined') {
       mpBc = new BroadcastChannel('pocket_card_mp_' + mpRoomCode);
-      mpBc.onmessage = e => mpHandleMessage(e.data);
+      mpBc.onmessage = e => window.mpHandleMessage(e.data);
     }
     if (mpLocalRole === 'host') {
       mpConnected = true;
@@ -17094,17 +17106,15 @@ if (_homeSettingsBtn) _homeSettingsBtn.addEventListener('click', openHomeSetting
     window.mpSend = function (payload) {
       if (payload && typeof payload === 'object') {
         const myFrame = getEquippedCardFrameId();
-        if (payload.type === 'JOIN_REQ' || payload.type === 'REMATCH_REQ' || payload.type === 'SETUP_DONE') {
-          payload = { ...payload, cardFrame: myFrame };
-        }
+        payload = { ...payload, cardFrame: myFrame };
         if (payload.snap && Array.isArray(payload.snap.players) && payload.snap.players.length === 2) {
           const myIdx = typeof state !== 'undefined' && typeof state.mpLocalIdx === 'number' ? state.mpLocalIdx : 0;
           const oppIdx = 1 - myIdx;
           if (payload.snap.players[myIdx]) {
             payload.snap.players[myIdx].cardFrame = myFrame;
           }
-          if (payload.snap.players[oppIdx] && !payload.snap.players[oppIdx].cardFrame) {
-            payload.snap.players[oppIdx].cardFrame = window.__mpPeerCardFrame || 'default';
+          if (payload.snap.players[oppIdx]) {
+            payload.snap.players[oppIdx].cardFrame = payload.snap.players[oppIdx].cardFrame || window.__mpPeerCardFrame || 'default';
           }
         }
       }
@@ -17118,7 +17128,7 @@ if (_homeSettingsBtn) _homeSettingsBtn.addEventListener('click', openHomeSetting
       let parsed = null;
       try { parsed = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch (e) {}
       if (parsed && parsed.type) {
-        if ((parsed.type === 'JOIN_REQ' || parsed.type === 'REMATCH_REQ') && parsed.cardFrame) {
+        if (parsed.cardFrame) {
           window.__mpPeerCardFrame = parsed.cardFrame;
         }
         if (parsed.type === 'MATCH_INIT' && typeof state !== 'undefined' && state) {
@@ -17131,6 +17141,10 @@ if (_homeSettingsBtn) _homeSettingsBtn.addEventListener('click', openHomeSetting
       if (parsed && typeof state !== 'undefined' && state?.isMultiplayer && Array.isArray(state.players) && state.players.length === 2) {
         const myIdx = typeof state.mpLocalIdx === 'number' ? state.mpLocalIdx : 0;
         const oppIdx = 1 - myIdx;
+        if (parsed.cardFrame && state.players[oppIdx]) {
+          state.players[oppIdx].cardFrame = parsed.cardFrame;
+          window.__mpPeerCardFrame = parsed.cardFrame;
+        }
         if (parsed.type === 'SETUP_DONE' && typeof parsed.playerIdx === 'number' && parsed.cardFrame && state.players[parsed.playerIdx]) {
           state.players[parsed.playerIdx].cardFrame = parsed.cardFrame;
           if (parsed.playerIdx === oppIdx) window.__mpPeerCardFrame = parsed.cardFrame;
@@ -17760,11 +17774,10 @@ if (_homeSettingsBtn) _homeSettingsBtn.addEventListener('click', openHomeSetting
   function createMatchmakingEngine(opts) {
     const options = opts || {};
     const nowFn = options.nowFn || (() => Date.now());
-    const randFn = options.randFn || (() => Math.random());
     const clientId = options.clientId || ('pcb_u_' + Math.random().toString(36).slice(2, 10) + '_' + nowFn().toString(36));
 
     const realPeers = new Map();  // clientId -> { clientId, name, status, lastSeen }
-    const queuePeers = new Map(); // clientId -> { clientId, name, deckConfig, joinedAt, lastSeen }
+    const queuePeers = new Map(); // clientId -> { clientId, name, deckConfig, cardFrame, joinedAt, lastSeen }
 
     let selfStatus = 'idle'; // 'idle' | 'searching' | 'in_match'
     let selfTicket = null;
@@ -17797,19 +17810,17 @@ if (_homeSettingsBtn) _homeSettingsBtn.addEventListener('click', openHomeSetting
       }
     }
 
-    // 実際にオンラインの実プレイヤー数のみを返す（ボット加算なし）
     function getOnlineCount() {
       pruneStalePeers();
       return realPeers.size;
     }
 
-    // 実際にマッチング待機中の実プレイヤー数のみを返す（0人なら0）
     function getSearchingCount() {
       pruneStalePeers();
       return queuePeers.size;
     }
 
-    function joinQueue(playerName, deckCfg) {
+    function joinQueue(playerName, deckCfg, cardFrame) {
       const t = nowFn();
       selfStatus = 'searching';
       matchedPair = null;
@@ -17817,6 +17828,7 @@ if (_homeSettingsBtn) _homeSettingsBtn.addEventListener('click', openHomeSetting
         clientId,
         name: (playerName || '').trim() || 'プレイヤー',
         deckConfig: deckCfg,
+        cardFrame: cardFrame || 'default',
         joinedAt: t,
         lastSeen: t
       };
@@ -17830,6 +17842,7 @@ if (_homeSettingsBtn) _homeSettingsBtn.addEventListener('click', openHomeSetting
       const t = nowFn();
       queuePeers.set(ticket.clientId, {
         ...ticket,
+        cardFrame: ticket.cardFrame || 'default',
         lastSeen: ticket.lastSeen != null ? ticket.lastSeen : t
       });
       registerPresence({ clientId: ticket.clientId, name: ticket.name, status: 'searching', lastSeen: t });
@@ -17856,7 +17869,6 @@ if (_homeSettingsBtn) _homeSettingsBtn.addEventListener('click', openHomeSetting
       }
     }
 
-    // 実プレイヤー同士の決定論的ペアリング（ボットへのフォールバックなし）
     function tryPairPeers() {
       pruneStalePeers();
       if (selfStatus !== 'searching' || !selfTicket) return null;
@@ -18054,7 +18066,8 @@ if (_homeSettingsBtn) _homeSettingsBtn.addEventListener('click', openHomeSetting
           roomCode: pair.roomCode,
           role: pair.role,
           peerName: pair.opponent.name,
-          peerDeck: pair.opponent.deckConfig
+          peerDeck: pair.opponent.deckConfig,
+          peerCardFrame: pair.opponent.cardFrame || 'default'
         });
       }
     }, 900);
@@ -18066,8 +18079,9 @@ if (_homeSettingsBtn) _homeSettingsBtn.addEventListener('click', openHomeSetting
     const myDeck = validDeck(deckConfig?.ids, deckConfig?.types)
       ? { ids: [...deckConfig.ids], types: [...deckConfig.types] }
       : { ids: [...DEFAULT_DECK_IDS], types: [...DEFAULT_ENERGY_TYPES] };
+    const myFrame = typeof getEquippedCardFrameId === 'function' ? getEquippedCardFrameId() : 'default';
 
-    const ticket = engine.joinQueue(myName, myDeck);
+    const ticket = engine.joinQueue(myName, myDeck, myFrame);
     updateOnlineCountDisplays();
 
     const box = document.getElementById('mmBodyArea');
@@ -18087,7 +18101,6 @@ if (_homeSettingsBtn) _homeSettingsBtn.addEventListener('click', openHomeSetting
       if (queueBc) queueBc.postMessage(JSON.stringify({ type: 'MATCH_SEEK', clientId: engine.clientId, ticket }));
     } catch (e) {}
 
-    // すでに待機中の実プレイヤーがいれば即ペアリング
     const immediate = engine.tryPairPeers();
     if (immediate) {
       onMatchFound(immediate);

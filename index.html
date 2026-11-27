@@ -11570,7 +11570,9 @@ runCpuTurn = async function () {
         unlockedFrames: Array.isArray(acc.unlockedFrames) ? Array.from(new Set(['default', ...acc.unlockedFrames])) : ['default'],
         passState: {
           wins: Math.max(0, Number(acc.passState?.wins) || 0),
-          coins: Math.max(0, Number(acc.passState?.coins) || 0)
+          coins: (acc.passState && acc.passState.coins !== undefined && acc.passState.coins !== null)
+            ? Math.max(0, Number(acc.passState.coins) || 0)
+            : 2
         }
       };
     },
@@ -11592,6 +11594,19 @@ runCpuTurn = async function () {
       accounts[accId].updatedAt = Date.now();
       saveAccounts(accounts);
       scheduleCloudPush(accId);
+      return true;
+    },
+    getActiveAccountId: () => getActiveAccountId(),
+    grantFrameToAccount: (targetAccId, frameId) => {
+      if (!targetAccId || !frameId) return false;
+      const accounts = loadAccounts();
+      const acc = accounts[targetAccId];
+      if (!acc) return false;
+      const cur = Array.isArray(acc.unlockedFrames) ? acc.unlockedFrames : ['default'];
+      acc.unlockedFrames = Array.from(new Set(['default', ...cur, frameId]));
+      acc.updatedAt = Date.now();
+      saveAccounts(accounts);
+      scheduleCloudPush(targetAccId);
       return true;
     }
   };
@@ -15757,6 +15772,100 @@ if (_homeSettingsBtn) _homeSettingsBtn.addEventListener('click', openHomeSetting
     padding: 12px;
     margin-top: 10px;
   }
+  /* ===== ガチャ演出オーバーレイ（ため→閃光→出現） ===== */
+  .gacha-anim-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 2600;
+    background: radial-gradient(circle at 50% 48%, rgba(15, 23, 42, 0.92), rgba(2, 6, 23, 0.98));
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    padding: 20px;
+    overflow: hidden;
+  }
+  .gacha-anim-stage {
+    position: relative;
+    width: 150px;
+    height: 210px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .gacha-charge-card {
+    width: 118px;
+    height: 166px;
+    border-radius: 12px;
+    border: 2px solid rgba(255, 255, 255, 0.7);
+    background: radial-gradient(circle at 50% 40%, #312e81, #0f172a 75%);
+    box-shadow: 0 0 22px rgba(99, 102, 241, 0.7), inset 0 0 20px rgba(167, 139, 250, 0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 38px;
+    animation: cfGachaChargeShake 1.35s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  }
+  .gacha-charge-ring {
+    position: absolute;
+    inset: -26px;
+    border-radius: 999px;
+    border: 3px dashed rgba(253, 224, 71, 0.8);
+    animation: cfGachaChargeRing 1.35s ease-in forwards;
+    pointer-events: none;
+  }
+  .gacha-flash-screen {
+    position: fixed;
+    inset: 0;
+    z-index: 2610;
+    pointer-events: none;
+    opacity: 0;
+    animation: cfGachaFlashBurst 0.85s ease-out forwards;
+  }
+  .gacha-flash-screen.rarity-r   { background: radial-gradient(circle, #ffffff 0%, #7dd3fc 45%, rgba(14,165,233,0.9) 100%); }
+  .gacha-flash-screen.rarity-sr  { background: radial-gradient(circle, #ffffff 0%, #e879f9 40%, #7c3aed 100%); }
+  .gacha-flash-screen.rarity-ssr { background: radial-gradient(circle, #ffffff 0%, #fde047 35%, #f97316 70%, #ef4444 100%); }
+  .gacha-flash-screen.rarity-ur  { background: conic-gradient(from 0deg, #ff0080, #fde047, #00f5a0, #00d9f5, #a855f7, #ffffff, #ff0080); }
+  .gacha-reveal-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    animation: cfGachaRevealPop 0.45s cubic-bezier(0.22, 1.3, 0.36, 1) forwards;
+  }
+  .gacha-reveal-card-box {
+    width: 112px;
+    height: 158px;
+    position: relative;
+  }
+  .gacha-reveal-card-box .card {
+    width: 100% !important;
+    height: 100% !important;
+  }
+  @keyframes cfGachaChargeShake {
+    0%   { transform: scale(0.85) rotate(0deg); filter: brightness(0.9); box-shadow: 0 0 12px rgba(99,102,241,0.5); }
+    25%  { transform: scale(0.94) rotate(-2deg); filter: brightness(1.1); }
+    45%  { transform: scale(1.0) rotate(2.5deg); box-shadow: 0 0 32px rgba(167,139,250,0.9); }
+    65%  { transform: scale(1.06) rotate(-3.5deg); filter: brightness(1.4); box-shadow: 0 0 54px rgba(253,224,71,0.95); }
+    82%  { transform: scale(1.12) rotate(4deg); filter: brightness(1.85); box-shadow: 0 0 80px #ffffff, 0 0 110px #fde047; }
+    100% { transform: scale(1.22) rotate(0deg); filter: brightness(2.6); box-shadow: 0 0 120px #ffffff; }
+  }
+  @keyframes cfGachaChargeRing {
+    0%   { transform: scale(1.45) rotate(0deg); opacity: 0.25; }
+    75%  { transform: scale(0.75) rotate(260deg); opacity: 0.95; }
+    100% { transform: scale(0.35) rotate(360deg); opacity: 1; }
+  }
+  @keyframes cfGachaFlashBurst {
+    0%   { opacity: 0; }
+    22%  { opacity: 1; }
+    100% { opacity: 0; }
+  }
+  @keyframes cfGachaRevealPop {
+    0%   { transform: scale(0.55); opacity: 0; }
+    100% { transform: scale(1); opacity: 1; }
+  }
+
   .gacha-rates {
     margin-top: 10px;
     font-size: 11px;
@@ -16666,9 +16775,28 @@ if (_homeSettingsBtn) _homeSettingsBtn.addEventListener('click', openHomeSetting
   }
 
   // 解放済みフレーム・パス進行・装備フレームの読み込み（アカウント連携対応）
+  // 特定アカウントIDにフレームを配布したい場合はここに { 'アカウントID': ['フレームID'] } を記述
+  const ACCOUNT_FRAME_GIFTS = {
+    // 例: 'player1': ['holo_rainbow', 'all_gold']
+  };
+
   let unlockedFrames = ['default'];
-  let passState = { wins: 0, coins: 0 };
+  let passState = { wins: 0, coins: 2 };
   let equippedFrameId = 'default';
+
+  function applyAccountGifts(accId) {
+    if (!accId) return false;
+    const gifts = ACCOUNT_FRAME_GIFTS[accId];
+    if (!Array.isArray(gifts) || !gifts.length) return false;
+    let changed = false;
+    gifts.forEach(fid => {
+      if (CARD_FRAMES.some(f => f.id === fid) && !unlockedFrames.includes(fid)) {
+        unlockedFrames.push(fid);
+        changed = true;
+      }
+    });
+    return changed;
+  }
 
   function loadProgressFromStorageOrAccount() {
     const accData = window.__accFramePassBridge?.load?.();
@@ -16676,8 +16804,14 @@ if (_homeSettingsBtn) _homeSettingsBtn.addEventListener('click', openHomeSetting
       unlockedFrames = Array.from(new Set(['default', ...(accData.unlockedFrames || []).filter(id => CARD_FRAMES.some(f => f.id === id))]));
       passState = {
         wins: Math.max(0, Number(accData.passState?.wins) || 0),
-        coins: Math.max(0, Number(accData.passState?.coins) || 0)
+        coins: (accData.passState && accData.passState.coins !== undefined && accData.passState.coins !== null)
+          ? Math.max(0, Number(accData.passState.coins) || 0)
+          : 2
       };
+      const curAccId = window.__accFramePassBridge?.getActiveAccountId?.();
+      if (applyAccountGifts(curAccId)) {
+        window.__accFramePassBridge?.save?.({ unlockedFrames, passState });
+      }
       equippedFrameId = unlockedFrames.includes(accData.cardFrame) ? accData.cardFrame : 'default';
       return;
     }
@@ -16693,15 +16827,17 @@ if (_homeSettingsBtn) _homeSettingsBtn.addEventListener('click', openHomeSetting
       }
     } catch (e) { unlockedFrames = ['default']; }
 
-    passState = { wins: 0, coins: 0 };
+    passState = { wins: 0, coins: 2 };
     try {
       const rawPass = safeGet(PASS_STATE_KEY, '');
       if (rawPass) {
         const parsed = JSON.parse(rawPass);
         if (parsed && typeof parsed === 'object') {
           passState.wins = Math.max(0, Number(parsed.wins) || 0);
-          passState.coins = Math.max(0, Number(parsed.coins) || 0);
+          passState.coins = (parsed.coins !== undefined && parsed.coins !== null) ? Math.max(0, Number(parsed.coins) || 0) : 2;
         }
+      } else {
+        safeSet(PASS_STATE_KEY, JSON.stringify(passState));
       }
     } catch (e) {}
 
@@ -16763,6 +16899,27 @@ if (_homeSettingsBtn) _homeSettingsBtn.addEventListener('click', openHomeSetting
   window.getPassState = function () {
     return { wins: passState.wins, coins: passState.coins };
   };
+  window.grantFrameToAccount = function (accountIdOrFrameId, maybeFrameId) {
+    // 引数1つなら現在ログイン中/現在の状態に付与、2つなら指定アカウントIDに付与
+    const targetAcc = maybeFrameId ? accountIdOrFrameId : window.__accFramePassBridge?.getActiveAccountId?.();
+    const fid = maybeFrameId || accountIdOrFrameId;
+    if (!CARD_FRAMES.some(f => f.id === fid)) return { ok: false, reason: '存在しないフレームIDです: ' + fid };
+    if (targetAcc && window.__accFramePassBridge?.grantFrameToAccount) {
+      const ok = window.__accFramePassBridge.grantFrameToAccount(targetAcc, fid);
+      if (ok && targetAcc === window.__accFramePassBridge?.getActiveAccountId?.()) {
+        if (!unlockedFrames.includes(fid)) unlockedFrames.push(fid);
+        renderHomeCustomStrip();
+      }
+      return { ok, accountId: targetAcc, frameId: fid };
+    }
+    if (!unlockedFrames.includes(fid)) {
+      unlockedFrames.push(fid);
+      saveUnlockedFrames();
+      renderHomeCustomStrip();
+    }
+    return { ok: true, accountId: null, frameId: fid };
+  };
+
   window.setEquippedCardFrameId = function (fid) {
     if (!unlockedFrames.includes(fid)) return false;
     equippedFrameId = fid;
@@ -17382,6 +17539,61 @@ if (_homeSettingsBtn) _homeSettingsBtn.addEventListener('click', openHomeSetting
         }
       }
 
+      const playGachaPullAnimation = (out, onDone) => {
+        const oldOv = document.getElementById('gachaPullAnimOverlay');
+        if (oldOv) oldOv.remove();
+        const ov = document.createElement('div');
+        ov.id = 'gachaPullAnimOverlay';
+        ov.className = 'gacha-anim-overlay';
+        ov.innerHTML = `
+          <div class="gacha-anim-stage">
+            <div class="gacha-charge-ring"></div>
+            <div class="gacha-charge-card">✨</div>
+          </div>
+          <div style="font-size:15px;font-weight:900;color:#fde047;letter-spacing:0.08em;">⚡ パワーをためています…</div>
+        `;
+        document.body.appendChild(ov);
+
+        // ため(1350ms) -> 閃光フラッシュ
+        setTimeout(() => {
+          if (!document.body.contains(ov)) return;
+          const flash = document.createElement('div');
+          flash.className = 'gacha-flash-screen rarity-' + out.frame.rarity;
+          ov.appendChild(flash);
+          const msg = ov.querySelector('div:last-of-type');
+          if (msg) msg.textContent = '';
+
+          // 閃光ピーク(320ms)でカード出現
+          setTimeout(() => {
+            if (!document.body.contains(ov)) return;
+            ov.innerHTML = `
+              <div class="gacha-reveal-wrap">
+                <div style="display:flex;gap:8px;align-items:center;">
+                  <span class="cf-rarity-pill cf-rarity-${out.frame.rarity}" style="font-size:12px;padding:3px 10px;">${out.frame.rarityLabel}</span>
+                  <span style="font-size:13px;font-weight:900;color:${out.isNew ? '#4ade80' : '#fbbf24'};">
+                    ${out.isNew ? '🎉 NEW 解放！' : '💫 所持済み'}
+                  </span>
+                </div>
+                <div class="gacha-reveal-card-box" id="gachaAnimRevealMount"></div>
+                <div style="font-size:18px;font-weight:900;color:#fff;text-shadow:0 0 12px rgba(255,255,255,0.6);">${out.frame.name}</div>
+                <div style="font-size:12px;color:#cbd5e1;max-width:280px;text-align:center;">${out.frame.desc}</div>
+                <div style="display:flex;gap:10px;margin-top:6px;">
+                  <button type="button" class="cf-mini-pill-btn active" id="gachaAnimEquipBtn">✨ 装備して閉じる</button>
+                  <button type="button" class="cf-mini-pill-btn" id="gachaAnimCloseBtn">閉じる</button>
+                </div>
+              </div>
+            `;
+            ov.appendChild(flash);
+            const mount = document.getElementById('gachaAnimRevealMount');
+            if (mount) mount.appendChild(buildPreviewCardDom(getPreviewSampleCard(), out.frame.id));
+            const eqBtn = document.getElementById('gachaAnimEquipBtn');
+            const clBtn = document.getElementById('gachaAnimCloseBtn');
+            if (eqBtn) eqBtn.onclick = () => { window.setEquippedCardFrameId(out.frame.id); ov.remove(); onDone && onDone(); };
+            if (clBtn) clBtn.onclick = () => { ov.remove(); onDone && onDone(); };
+          }, 320);
+        }, 1350);
+      };
+
       const spinBtn = document.getElementById('passGachaSpinBtn');
       if (spinBtn) {
         spinBtn.onclick = () => {
@@ -17390,16 +17602,11 @@ if (_homeSettingsBtn) _homeSettingsBtn.addEventListener('click', openHomeSetting
             if (typeof showToast === 'function') showToast(out.reason, 1400);
             return;
           }
-          renderHomeCustomStrip();
-          draw();
-          if (typeof showToast === 'function') {
-            showToast(
-              out.isNew
-                ? `🎉 NEW！「${out.frame.name}」(${out.frame.rarityLabel}) を解放！`
-                : `💫 「${out.frame.name}」(${out.frame.rarityLabel}) ※所持済み`,
-              2000
-            );
-          }
+          spinBtn.disabled = true;
+          playGachaPullAnimation(out, () => {
+            renderHomeCustomStrip();
+            draw();
+          });
         };
       }
     };
